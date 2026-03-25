@@ -25,7 +25,7 @@ Standardfunktioner:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from verd.financial_market import FinancialMarket
@@ -108,6 +108,7 @@ class FremregningsSkridt:
     udbetaling_dkk: float
     omkostning_dkk: float
     enhedspris: float
+    cashflows_i_live: CashflowSats = field(default_factory=CashflowSats)
 
     def _find(self, tilstand: PolicyState) -> TilstandsSkridt | None:
         """Opslag på et ``TilstandsSkridt`` med givet tilstand."""
@@ -364,6 +365,7 @@ def fremregn(
         total_indbetaling = 0.0
         total_udbetaling = 0.0
         total_omkostning = 0.0
+        cashflows_il = CashflowSats()
 
         for tilstand in aktive:
             pol, prob = tilstands_dict[tilstand]
@@ -382,6 +384,7 @@ def fremregn(
             ny_policies[tilstand] = thiele_step(pol, t, dt, market, cashflows, overgangs_led)
 
             if tilstand == PolicyState.I_LIVE:
+                cashflows_il = cashflows
                 total_indbetaling += cashflows.total_indbetaling * dt
                 total_udbetaling += cashflows.total_udbetaling * dt
                 total_omkostning += cashflows.omkostning * dt
@@ -423,6 +426,7 @@ def fremregn(
                 udbetaling_dkk=total_udbetaling,
                 omkostning_dkk=total_omkostning,
                 enhedspris=market.enhedspris(t),
+                cashflows_i_live=cashflows_il,
             )
         )
 

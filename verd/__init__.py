@@ -21,6 +21,11 @@ from verd.overgang import (
     Tilstandsmodel,
 )
 from verd.plot import plot_fremregning
+from verd.udbetaling import (
+    livrente_annuitet,
+    sikker_annuitet,
+    udbetaling_cashflow_funktion,
+)
 from verd.fremregning import (
     CashflowFunktion,
     RisikosumFunktion,
@@ -56,6 +61,10 @@ __all__ = [
     "Tilstandsmodel",
     # Visualisering
     "plot_fremregning",
+    # Udbetalingsfase
+    "livrente_annuitet",
+    "sikker_annuitet",
+    "udbetaling_cashflow_funktion",
     # Fremregning
     "CashflowFunktion",
     "RisikosumFunktion",
