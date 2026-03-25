@@ -28,6 +28,7 @@ from verd import (
     fremregn,
     initial_distribution,
     simpel_opsparings_cashflow,
+    standard_omkostning,
     standard_toetilstands_model,
 )
 from verd.plot import plot_fremregning
@@ -64,6 +65,9 @@ antal_skridt_op = round(t_pension * 12)
 
 tilstandsmodel = standard_toetilstands_model(biometri)
 
+# Omkostningsmodel: 0% indbetalingsomkostning, 0,5% AUM p.a., 200 DKK/år styk
+omk = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
+
 # ---------------------------------------------------------------------------
 # Fase 1 — Opsparingsfase (alder 40 → 67)
 # ---------------------------------------------------------------------------
@@ -73,6 +77,7 @@ skridt_op = fremregn(
     market=marked,
     tilstandsmodel=tilstandsmodel,
     cashflow_funktion=simpel_opsparings_cashflow,
+    omkostnings_funktion=omk,
     dt=1 / 12,
     t_0=0.0,
 )
@@ -120,6 +125,7 @@ skridt_udb = fremregn(
     market=marked,
     tilstandsmodel=tilstandsmodel,
     cashflow_funktion=cashflow_udb,
+    omkostnings_funktion=omk,
     dt=1 / 12,
     t_0=t_pension,
 )

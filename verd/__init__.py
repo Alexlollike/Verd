@@ -20,6 +20,7 @@ from verd.overgang import (
     Overgang,
     Tilstandsmodel,
 )
+from verd.omkostning import OmkostningsFunktion, nul_omkostning, standard_omkostning
 from verd.plot import plot_fremregning
 from verd.udbetaling import (
     livrente_annuitet,
@@ -59,6 +60,10 @@ __all__ = [
     "KonstantOvergangsIntensitet",
     "Overgang",
     "Tilstandsmodel",
+    # Omkostningsmodeller
+    "OmkostningsFunktion",
+    "nul_omkostning",
+    "standard_omkostning",
     # Visualisering
     "plot_fremregning",
     # Udbetalingsfase

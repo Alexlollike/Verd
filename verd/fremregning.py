@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from verd.financial_market import FinancialMarket
+from verd.omkostning import OmkostningsFunktion, nul_omkostning
 from verd.overgang import Tilstandsmodel
 from verd.policy import Policy
 from verd.policy_distribution import PolicyDistribution
@@ -243,6 +244,7 @@ def fremregn(
     market: FinancialMarket,
     tilstandsmodel: Tilstandsmodel,
     cashflow_funktion: CashflowFunktion = simpel_opsparings_cashflow,
+    omkostnings_funktion: OmkostningsFunktion = nul_omkostning,
     dt: float = 1.0 / 12.0,
     t_0: float = 0.0,
 ) -> list[FremregningsSkridt]:
@@ -252,6 +254,7 @@ def fremregn(
     For hvert tidsstep:
       1. Thiele-skridt for hver aktiv (ikke-absorberende) tilstand:
          - Beregn cashflows via ``cashflow_funktion(policy_i, t)``
+         - Tillæg omkostninger via ``omkostnings_funktion(policy_i, t)``
          - Beregn overgangsled: [(µ_ij, R_ij)] for hvert udgående overgang
          - Kald ``thiele_step`` → opdaterede betingede depoter
       2. Kolmogorov fremadligning (Euler) for alle tilstande:
@@ -271,8 +274,12 @@ def fremregn(
     tilstandsmodel:
         Definition af tilstandsrummet: alle overgange med intensiteter og risikosummer.
     cashflow_funktion:
-        ``(Policy, t) → CashflowSats`` — cashflows for hvert skridt.
+        ``(Policy, t) → CashflowSats`` — indbetalinger og udbetalinger for hvert skridt.
         Standard: ``simpel_opsparings_cashflow``.
+    omkostnings_funktion:
+        ``(Policy, t) → float`` — samlet omkostningssats i DKK/år (AUM + styk + øvrige).
+        Lægges oven på ``cashflow_funktion``s eventuelle ``omkostning``-felt.
+        Standard: ``nul_omkostning`` (ingen ekstra omkostninger).
     dt:
         Tidsstep i år. Standard: 1/12 (månedligt).
     t_0:
@@ -370,7 +377,12 @@ def fremregn(
         for tilstand in aktive:
             pol, prob = tilstands_dict[tilstand]
 
-            cashflows = cashflow_funktion(pol, t)
+            cashflows_raa = cashflow_funktion(pol, t)
+            ekstra_omk = omkostnings_funktion(pol, t)
+            cashflows = _dc.replace(
+                cashflows_raa,
+                omkostning=cashflows_raa.omkostning + ekstra_omk,
+            )
 
             # Byg overgangs_led: [(µ_ij, R_ij)] for hvert udgående overgang
             overgangs_led: list[tuple[float, RisikoSummer]] = [
