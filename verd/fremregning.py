@@ -1,23 +1,24 @@
 """
-Fremregning — sandsynlighedsvægtet fremregning via Thieles differentialligning.
+Fremregning — sandsynlighedsvægtet fremregning via koblede Thiele-ligninger.
 
-Fremregningen kombinerer to uafhængige lag:
+Fremregningen kombinerer to lag for hvert tidsstep:
 
-    1. Betinget depotfremregning (Thiele):
-       Givet at policen er I_LIVE fremregnes hvert depot ét Euler-skridt ad gangen:
-           Δn_i = dt · (π_i - b_i - c_i) / P(t)
+    1. Betinget depotfremregning (koblede Thiele-ligninger):
+       Givet tilstand I_LIVE fremregnes hvert depot via:
+           Δn_i = dt · [π_i − b_i − c_i − µ(x+t)·R_i] / P(t)
+       Det biometriske led −µ·R_i er altid eksplicit, selv når R_i = 0.
 
-    2. Sandsynlighedsopdatering (biometri):
+    2. Sandsynlighedsopdatering (Kolmogorov fremadligning):
        Overlevelsessandsynligheden opdateres hvert skridt:
-           p(t+dt) = p(t) · exp(-µ(x+t)·dt)
+           p(t+dt) = p(t) · exp(−µ(x+t)·dt)
 
 Det forventede depot (sandsynlighedsvægtet) på tidspunkt t er:
     E[V_i(t)] = p_I_LIVE(t) · V_i(t | I_LIVE)
 
-Standardcashflow-funktionen ``simpel_opsparings_cashflow`` dækker opsparingsfasen:
-    - Indbetalinger: loen × indbetalingsprocent, fordelt proportionalt på depoterne
-    - Udbetalinger: 0 (ingen udbetalinger i opsparingsfase)
-    - Omkostninger: 0 (opslagstabel defineres i Phase 2+)
+Standardfunktioner:
+    ``simpel_opsparings_cashflow`` — indbetaling = loen × indbetalingsprocent,
+                                      fordelt proportionalt på depoterne
+    ``nul_risikosum``              — R_i = 0 for alle i (rent unit-link)
 """
 
 from __future__ import annotations
@@ -31,10 +32,11 @@ from verd.financial_market import FinancialMarket
 from verd.policy import Policy
 from verd.policy_distribution import PolicyDistribution
 from verd.policy_state import PolicyState
-from verd.thiele import CashflowSats, thiele_step
+from verd.thiele import CashflowSats, RisikoSummer, thiele_step
 
-# Signatur for en cashflow-funktion: (policy, t) → CashflowSats
+# Signaturer for brugerdefinerbare funktioner
 CashflowFunktion = Callable[[Policy, float], CashflowSats]
+RisikosumFunktion = Callable[[Policy, float], RisikoSummer]
 
 
 @dataclass
@@ -50,7 +52,7 @@ class FremregningsSkridt:
         Forsikringstagers alder på tidspunkt t.
     prob_i_live:
         Sandsynlighed for at policen er I_LIVE på tidspunkt t,
-        dvs. p(t) = exp(-∫₀ᵗ µ(x+s) ds).
+        dvs. p(t) = exp(−∫₀ᵗ µ(x+s) ds).
     aldersopsparing_dkk:
         Betinget forventet aldersopsparing i DKK (givet I_LIVE).
     ratepension_dkk:
@@ -60,14 +62,15 @@ class FremregningsSkridt:
     total_depot_dkk:
         Samlet betinget forventet depot i DKK (givet I_LIVE).
     forventet_depot_dkk:
-        Sandsynlighedsvægtet forventet depot i DKK:
-        = prob_i_live × total_depot_dkk
+        Sandsynlighedsvægtet forventet depot i DKK = prob_i_live × total_depot_dkk.
     indbetaling_dkk:
-        Faktisk indbetalt beløb i dette tidsstep (DKK).
+        Indbetalt beløb i dette tidsstep (DKK).
     udbetaling_dkk:
-        Faktisk udbetalt beløb i dette tidsstep (DKK).
+        Udbetalt beløb i dette tidsstep (DKK).
     omkostning_dkk:
-        Faktisk omkostning i dette tidsstep (DKK).
+        Omkostning i dette tidsstep (DKK).
+    risikosum_dkk:
+        Samlet risikosum R_ald + R_rate + R_liv (DKK) — biometrisk kopplingsled.
     enhedspris:
         Enhedspris P(t) på tidspunkt t (DKK/enhed).
     """
@@ -83,6 +86,7 @@ class FremregningsSkridt:
     indbetaling_dkk: float
     udbetaling_dkk: float
     omkostning_dkk: float
+    risikosum_dkk: float
     enhedspris: float
 
 
@@ -129,21 +133,50 @@ def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
     )
 
 
+def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
+    """
+    Standard risikosum-funktion for rent unit-link uden ekstra dødsbenefit.
+
+    Returnerer R_i = 0 for alle depoter, svarende til at dødsbenefit = depot-
+    værdi og DOED-reserven er nul:
+
+        R_i = S_i^{dead} + V_i^{DOED} − V_i^{I_LIVE} = V_i − 0 − V_i = 0
+
+    Det biometriske led −µ·R_i bidrager numerisk med nul, men er strukturelt
+    til stede i ligningerne (se ``thiele_step``).
+
+    Parameters
+    ----------
+    policy:
+        Ikke brugt — returnerer altid ``RisikoSummer()`` med nulværdier.
+    t:
+        Ikke brugt.
+
+    Returns
+    -------
+    RisikoSummer
+        Risikosum med R_ald = R_rate = R_liv = 0.
+    """
+    return RisikoSummer()
+
+
 def fremregn(
     distribution: PolicyDistribution,
     antal_skridt: int,
     biometric: BiometricModel,
     market: FinancialMarket,
     cashflow_funktion: CashflowFunktion = simpel_opsparings_cashflow,
+    risikosum_funktion: RisikosumFunktion = nul_risikosum,
     dt: float = 1.0 / 12.0,
     t_0: float = 0.0,
 ) -> list[FremregningsSkridt]:
     """
-    Sandsynlighedsvægtet fremregning via Thieles differentialligning.
+    Sandsynlighedsvægtet fremregning via koblede Thiele-ligninger.
 
-    Kombinerer to lag for hvert tidsstep:
-      1. Thiele-skridt: fremregner det betingede depot givet I_LIVE
-      2. Biometri-skridt: opdaterer overlevelsessandsynlighed
+    Kombinerer for hvert tidsstep:
+      1. Koblede Thiele-skridt: fremregner det betingede depot givet I_LIVE,
+         inkl. det biometriske kopplingsled −µ·R_i for hvert depot.
+      2. Biometri-skridt: opdaterer overlevelsessandsynlighed via Kolmogorov.
 
     Parameters
     ----------
@@ -153,12 +186,16 @@ def fremregn(
     antal_skridt:
         Antal tidsstep der fremregnes (f.eks. 12 × antal_år).
     biometric:
-        Biometrisk model — leverer dødelighedsintensitet µ(x+t).
+        Biometrisk model — leverer µ(x+t) til både Thiele-steget og
+        sandsynlighedsopdateringen.
     market:
         Finansielt marked — leverer enhedspris P(t).
     cashflow_funktion:
-        Funktion ``(Policy, t) → CashflowSats`` der beregner cashflows for hvert skridt.
+        ``(Policy, t) → CashflowSats`` — cashflows for hvert skridt.
         Standard: ``simpel_opsparings_cashflow``.
+    risikosum_funktion:
+        ``(Policy, t) → RisikoSummer`` — risikosummer R_i per skridt.
+        Standard: ``nul_risikosum`` (rent unit-link, alle R_i = 0).
     dt:
         Tidsstep i år. Standard: 1/12 (månedligt).
     t_0:
@@ -204,6 +241,7 @@ def fremregn(
             indbetaling_dkk=0.0,
             udbetaling_dkk=0.0,
             omkostning_dkk=0.0,
+            risikosum_dkk=0.0,
             enhedspris=P_t,
         )
     ]
@@ -214,12 +252,12 @@ def fremregn(
     for _ in range(antal_skridt):
         alder = alder_ved_tegning + t
         cashflows = cashflow_funktion(policy, t)
+        risikosum = risikosum_funktion(policy, t)
 
-        # 1. Indbetalinger + 2. Afkast (implicit) + 4. Udbetalinger/Omkostninger
-        #    via Thieles ODE (biometri håndteres separat nedenfor)
-        policy_ny = thiele_step(policy, t, dt, market, cashflows)
+        # Koblede Thiele-skridt: betinget depotfremregning inkl. −µ·R_i
+        policy_ny = thiele_step(policy, t, dt, biometric, market, cashflows, risikosum)
 
-        # 3. Biometri: p(t+dt) = p(t) · exp(-µ(x+t)·dt)
+        # Kolmogorov fremadligning: p(t+dt) = p(t) · exp(−µ(x+t)·dt)
         mu = biometric.mortality_intensity(alder)
         prob_i_live_ny = prob_i_live * math.exp(-mu * dt)
 
@@ -240,6 +278,11 @@ def fremregn(
                 indbetaling_dkk=cashflows.total_indbetaling * dt,
                 udbetaling_dkk=cashflows.total_udbetaling * dt,
                 omkostning_dkk=cashflows.omkostning * dt,
+                risikosum_dkk=(
+                    risikosum.aldersopsparing
+                    + risikosum.ratepension
+                    + risikosum.livrente
+                ),
                 enhedspris=P_t_ny,
             )
         )
