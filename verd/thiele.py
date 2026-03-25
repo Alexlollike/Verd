@@ -2,51 +2,40 @@
 Thiele — koblede differentialligninger for betingede forventede depoter.
 
 De tre depoters udvikling er givet af et system af koblede Thiele-ligninger.
-For depot i ∈ {aldersopsparing, ratepension, livrente} i tilstand I_LIVE:
+For depot d ∈ {aldersopsparing, ratepension, livrente} i tilstand i:
 
-    dV_i/dt = r·V_i(t) + π_i(t) - b_i(t) - c_i(t)  −  µ(x+t)·R_i(t)
+    dV_d/dt = r·V_d(t) + π_d(t) − b_d(t) − c_d(t)  −  Σ_j µ_ij(x+t)·R_ij_d(t)
 
 hvor:
-    r        = afkastrate (kraftens af rente)
-    π_i(t)   = indbetalingssats til depot i (DKK/år)
-    b_i(t)   = udbetalingssats fra depot i (DKK/år)
-    c_i(t)   = omkostningssats for depot i (DKK/år)
-    µ(x+t)   = dødelighedsintensitet for overgangen I_LIVE → DOED
-    R_i(t)   = risikosum for depot i (DKK):
+    r          = afkastrate (kraftens af rente)
+    π_d(t)     = indbetalingssats til depot d (DKK/år)
+    b_d(t)     = udbetalingssats fra depot d (DKK/år)
+    c_d(t)     = omkostningssats for depot d (DKK/år)
+    µ_ij(x+t)  = overgangsintensitet fra tilstand i til tilstand j
+    R_ij_d(t)  = risikosum for depot d ved overgang i → j (DKK):
+                     R_ij_d = S_ij_d + V_j_d − V_i_d
 
-                R_i(t) = S_i^{dead}(t) + V_i^{DOED}(t) − V_i^{I_LIVE}(t)
+Summen løber over alle udgående overgange j ≠ i.
 
-                S_i^{dead}(t)  = lumpsum udbetalt fra depot i ved dødsfald
-                V_i^{DOED}(t)  = reserve for depot i i DOED-tilstanden (typisk 0)
-                V_i^{I_LIVE}(t) = reserve for depot i i I_LIVE-tilstanden
+Det finansielle led r·V_d(t) håndteres automatisk via enhedsprisens vækst
+P(t) = P₀·exp(r·t). Enhedstallet n_d = V_d/P ændres kun af nettopenge-
+strømmene. Euler-diskretiseringen for depot d (Euler fremadskridende):
 
-De tre ligninger er koblede: µ(x+t) er fælles, og risikosummerne R_i kan
-afhænge af alle depot-værdier (f.eks. ved krydssubsidiering mellem depoter).
+    Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
 
-For et rent unit-link produkt uden ekstra dødsbenefit gælder:
-    S_i^{dead}(t) = V_i^{I_LIVE}(t)  og  V_i^{DOED}(t) = 0
-    ⟹  R_i(t) = 0  for alle i
+Overlevelsessandsynligheder opdateres via Kolmogorov fremadligning i
+fremregningslaget (ikke her).
 
-Det biometriske led er **altid til stede** i ligningssystemet — også når
-R_i = 0 — fordi det afspejler modellens struktur (eksplicit overgangsled).
-
-I unit-link-form håndteres r·V_i(t) automatisk af enhedsprisens vækst
-P(t) = P₀·exp(r·t). Euler-diskretiseringen for enhedstallet n_i = V_i/P:
-
-    Δn_i = dt · [π_i − b_i − c_i − µ(x+t)·R_i] / P(t)
-
-Overlevelsessandsynligheden opdateres separat i fremregningslaget:
-
-    p(t+dt) = p(t) · exp(−µ(x+t)·dt)
+``thiele_step`` er et rent matematisk Euler-skridt — den kalder ingen
+modeller selv. Kaldende kode (``fremregn``) forudberegner µ_ij og R_ij_d
+og sender dem som en liste af ``(µ_ij, R_ij)``-par.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import math
 from dataclasses import dataclass
 
-from verd.biometric_model import BiometricModel
 from verd.financial_market import FinancialMarket
 from verd.policy import Policy
 from verd.policy_state import PolicyState
@@ -55,22 +44,22 @@ from verd.policy_state import PolicyState
 @dataclass
 class RisikoSummer:
     """
-    Risikosummer (DKK) for de tre depoter ved overgangen I_LIVE → DOED.
+    Risikosummer (DKK) for de tre depoter ved én Markov-overgang i → j.
 
-    Risikosummen for depot i er defineret som:
+    Risikosummen for depot d er defineret som:
 
-        R_i(t) = S_i^{dead}(t) + V_i^{DOED}(t) − V_i^{I_LIVE}(t)
+        R_ij_d(t) = S_ij_d(t) + V_j_d(t) − V_i_d(t)
 
     og indgår i Thieles ligning som det biometriske kopplingsled:
 
-        dV_i/dt = ... − µ(x+t) · R_i(t)
+        dV_d/dt = ... − µ_ij(x+t) · R_ij_d(t)
 
     Fortolkning:
-    - R_i > 0: selskabet har en nettoudgift ved dødsfald (f.eks. ydelsesgaranti)
-    - R_i = 0: rent unit-link, ingen risikopræmie på depot i
-    - R_i < 0: selskabet opnår en nettogevinst ved dødsfald (sjældent i praksis)
+    - R_ij_d > 0: nettoudgift ved overgangen (f.eks. ydelsesgaranti)
+    - R_ij_d = 0: rent unit-link, ingen risikopræmie på depot d
+    - R_ij_d < 0: nettogevinst ved overgangen (sjældent i praksis)
 
-    Standard er R_i = 0 for alle depoter (rent unit-link uden ekstra dødsbenefit).
+    Standard er R_ij_d = 0 for alle depoter (rent unit-link).
 
     Attributes
     ----------
@@ -85,6 +74,10 @@ class RisikoSummer:
     aldersopsparing: float = 0.0
     ratepension: float = 0.0
     livrente: float = 0.0
+
+
+# Type-alias for risikosum-funktion — importeres af fremregning og overgang
+RisikosumFunktion = "Callable[[Policy, float], RisikoSummer]"
 
 
 @dataclass
@@ -144,75 +137,63 @@ def thiele_step(
     policy: Policy,
     t: float,
     dt: float,
-    biometric: BiometricModel,
     market: FinancialMarket,
     cashflows: CashflowSats,
-    risikosum: RisikoSummer = RisikoSummer(),
+    overgangs_led: list[tuple[float, RisikoSummer]],
 ) -> Policy:
     """
     Ét diskret Euler-skridt af det koblede Thiele-ligningssystem.
 
-    Fremregner de **betingede forventede depoter** givet tilstand I_LIVE
+    Fremregner de **betingede forventede depoter** givet en aktiv tilstand
     over ét tidsstep [t, t+dt]. Alle tre depot-ODE'er inkluderer eksplicit
-    det biometriske kopplingsled −µ(x+t)·R_i, selv når R_i = 0.
+    det biometriske kopplingsled −µ_ij·R_ij_d for hvert udgående overgang,
+    selv når R_ij_d = 0.
 
-    Systemet af koblede differentialligninger:
+    Systemet af koblede differentialligninger for depot d:
 
-        dV_ald/dt  = r·V_ald  + π_ald  − b_ald  − c_ald   − µ·R_ald
-        dV_rate/dt = r·V_rate + π_rate − b_rate − c_rate  − µ·R_rate
-        dV_liv/dt  = r·V_liv  + π_liv  − b_liv  − c_liv   − µ·R_liv
+        dV_d/dt = r·V_d + π_d − b_d − c_d  −  Σ_j µ_ij·R_ij_d
 
-    Kobling: µ(x+t) er fælles for alle tre ligninger; R_i kan afhænge af
-    samtlige depot-værdier (f.eks. krydssubsidiering).
+    I unit-link-form håndteres r·V_d implicit via P(t) → P(t+dt).
+    Euler-diskretisering for enhedstallet n_d = V_d / P(t):
 
-    I unit-link-form håndteres r·V_i implicit via P(t) → P(t+dt).
-    Euler-diskretisering for enhedstallet n_i = V_i / P(t):
-
-        Δn_i = dt · [π_i − b_i − c_i − µ(x+t)·R_i] / P(t)
+        Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
 
     Rækkefølge af operationer inden for tidssteget:
-        1. Indbetalinger (π_i·dt) tilskrives som nye enheder ved P(t)
+        1. Indbetalinger (π_d·dt) tilskrives som nye enheder ved P(t)
         2. Finansielt afkast: implicit via P(t) → P(t+dt) = P(t)·exp(r·dt)
-        3. Biometrisk kopplingsled (−µ·R_i·dt) fratrækkes ved P(t)
-        4. Udbetalinger (b_i·dt) og omkostninger (c_i·dt) fratrækkes ved P(t)
-        (Overlevelsessandsynlighed opdateres eksternt i fremregningslaget)
+        3. Biometriske kopplingsled (−Σ_j µ_ij·R_ij_d·dt) fratrækkes ved P(t)
+        4. Udbetalinger (b_d·dt) og omkostninger (c_d·dt) fratrækkes ved P(t)
+        (Tilstandssandsynligheder opdateres eksternt via Kolmogorov)
 
     Parameters
     ----------
     policy:
-        Policyen i tilstand I_LIVE på tidspunkt t.
+        Policyen i en aktiv tilstand på tidspunkt t.
         Depotværdier er i enheder (units).
     t:
         Tid i år fra tegningsdato (t=0 svarer til tegningsdato).
     dt:
         Tidsstep i år. Standard: 1/12 (månedligt).
-    biometric:
-        Biometrisk model — leverer µ(x+t) til det biometriske kopplingsled.
     market:
         Finansielt marked — leverer enhedspris P(t).
     cashflows:
-        Cashflow-satser π_i, b_i, c_i i DKK/år for dette tidsstep.
-    risikosum:
-        Risikosummer R_i i DKK for de tre depoter.
-        Standard: ``RisikoSummer()`` — alle R_i = 0 (rent unit-link).
+        Cashflow-satser π_d, b_d, c_d i DKK/år for dette tidsstep.
+    overgangs_led:
+        Liste af ``(µ_ij, R_ij)``-par, ét per udgående overgang fra
+        ``policy.tilstand``. µ_ij er intensitetsværdien (float, år⁻¹)
+        forudberegnet af kaldende kode. Tom liste for absorberende tilstande.
 
     Returns
     -------
     Policy
-        Ny policy med opdaterede depotenheder (betinget på overlevelse, I_LIVE).
+        Ny policy med opdaterede depotenheder (betinget på aktiv tilstand).
 
     Raises
     ------
     ValueError
-        Hvis policyen ikke er i tilstand I_LIVE.
+        Hvis policyen er i en absorberende tilstand og ``overgangs_led``
+        er ikke-tom (inkonsistent input).
     """
-    if policy.tilstand != PolicyState.I_LIVE:
-        raise ValueError(
-            f"thiele_step kræver policy i tilstand I_LIVE, fik {policy.tilstand}"
-        )
-
-    alder = policy.alder_ved_tegning() + t
-    mu = biometric.mortality_intensity(alder)
     P_t = market.enhedspris(t)
 
     # Fordel samlet omkostning proportionalt på depoterne efter enhedsantal.
@@ -229,29 +210,35 @@ def thiele_step(
     omk_rate = cashflows.omkostning * w_rate
     omk_liv = cashflows.omkostning * w_liv
 
+    # Summér biometriske kopplingsled over alle udgående overgange:
+    #   Σ_j µ_ij · R_ij_d   for depot d ∈ {ald, rate, liv}
+    sum_bio_ald = sum(mu_ij * r.aldersopsparing for mu_ij, r in overgangs_led)
+    sum_bio_rate = sum(mu_ij * r.ratepension for mu_ij, r in overgangs_led)
+    sum_bio_liv = sum(mu_ij * r.livrente for mu_ij, r in overgangs_led)
+
     # Koblede Thiele-ligninger — Euler fremadskridende:
-    #   Δn_i = dt · [π_i − b_i − c_i − µ·R_i] / P(t)
+    #   Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
     #
-    # Det biometriske led −µ·R_i er altid eksplicit til stede, selv når R_i = 0.
+    # Det biometriske led er altid eksplicit til stede, selv når R_ij_d = 0.
     ald_ny = policy.aldersopsparing + dt * (
         cashflows.indbetaling_aldersopsparing
         - cashflows.udbetaling_aldersopsparing
         - omk_ald
-        - mu * risikosum.aldersopsparing
+        - sum_bio_ald
     ) / P_t
 
     rate_ny = policy.ratepensionsopsparing + dt * (
         cashflows.indbetaling_ratepension
         - cashflows.udbetaling_ratepension
         - omk_rate
-        - mu * risikosum.ratepension
+        - sum_bio_rate
     ) / P_t
 
     liv_ny = policy.livrentedepot + dt * (
         cashflows.indbetaling_livrente
         - cashflows.udbetaling_livrente
         - omk_liv
-        - mu * risikosum.livrente
+        - sum_bio_liv
     ) / P_t
 
     # Depoter kan ikke gå under nul (kortfristet numerisk fejl tillades ikke)

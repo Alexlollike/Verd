@@ -4,21 +4,22 @@ Fremregning — sandsynlighedsvægtet fremregning via koblede Thiele-ligninger.
 Fremregningen kombinerer to lag for hvert tidsstep:
 
     1. Betinget depotfremregning (koblede Thiele-ligninger):
-       Givet tilstand I_LIVE fremregnes hvert depot via:
-           Δn_i = dt · [π_i − b_i − c_i − µ(x+t)·R_i] / P(t)
-       Det biometriske led −µ·R_i er altid eksplicit, selv når R_i = 0.
+       For hver aktiv tilstand i fremregnes hvert depot via:
+           Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
+       Det biometriske led er altid eksplicit, selv når R_ij_d = 0.
 
-    2. Sandsynlighedsopdatering (Kolmogorov fremadligning):
-       Overlevelsessandsynligheden opdateres hvert skridt:
-           p(t+dt) = p(t) · exp(−µ(x+t)·dt)
+    2. Sandsynlighedsopdatering (Kolmogorov fremadligning, Euler):
+       For hver tilstand i opdateres sandsynligheden:
+           Δp_i = dt · [Σ_{j→i} µ_ji·p_j  −  Σ_{i→j} µ_ij·p_i]
+       Dette reducerer til p(t+dt) = p(t)·exp(−µ·dt) for to-tilstands-modellen.
 
-Det forventede depot (sandsynlighedsvægtet) på tidspunkt t er:
-    E[V_i(t)] = p_I_LIVE(t) · V_i(t | I_LIVE)
+Det forventede depot (sandsynlighedsvægtet) for tilstand i på tidspunkt t:
+    E[V_d^i(t)] = p_i(t) · V_d^i(t | tilstand i)
 
 Standardfunktioner:
-    ``simpel_opsparings_cashflow`` — indbetaling = loen × indbetalingsprocent,
-                                      fordelt proportionalt på depoterne
-    ``nul_risikosum``              — R_i = 0 for alle i (rent unit-link)
+    ``simpel_opsparings_cashflow`` — indbetaling = loen × indbetalingsprocent
+    ``nul_risikosum``              — R_ij_d = 0 for alle d (rent unit-link)
+    ``standard_toetilstands_model``— fabriksfunktion for I_LIVE → DOED
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ import math
 from dataclasses import dataclass
 from typing import Callable
 
-from verd.biometric_model import BiometricModel
 from verd.financial_market import FinancialMarket
+from verd.overgang import Tilstandsmodel
 from verd.policy import Policy
 from verd.policy_distribution import PolicyDistribution
 from verd.policy_state import PolicyState
@@ -40,9 +41,47 @@ RisikosumFunktion = Callable[[Policy, float], RisikoSummer]
 
 
 @dataclass
+class TilstandsSkridt:
+    """
+    Depotværdier og sandsynlighed for én tilstand på ét tidspunkt.
+
+    Attributes
+    ----------
+    tilstand:
+        Markov-tilstanden dette resultat tilhører.
+    prob:
+        Sandsynlighed for at policen er i denne tilstand, p_i(t).
+    aldersopsparing_dkk:
+        Betinget forventet aldersopsparing i DKK (givet tilstand i).
+    ratepension_dkk:
+        Betinget forventet ratepensionsopsparing i DKK (givet tilstand i).
+    livrente_dkk:
+        Betinget forventet livrentedepot i DKK (givet tilstand i).
+    """
+
+    tilstand: PolicyState
+    prob: float
+    aldersopsparing_dkk: float
+    ratepension_dkk: float
+    livrente_dkk: float
+
+    @property
+    def total_depot_dkk(self) -> float:
+        """Samlet betinget forventet depot i DKK (givet tilstanden)."""
+        return self.aldersopsparing_dkk + self.ratepension_dkk + self.livrente_dkk
+
+    @property
+    def forventet_depot_dkk(self) -> float:
+        """Sandsynlighedsvægtet forventet depot: p_i(t) × total_depot_dkk."""
+        return self.prob * self.total_depot_dkk
+
+
+@dataclass
 class FremregningsSkridt:
     """
     Resultat af ét tidsstep i den sandsynlighedsvægtede fremregning.
+
+    Indeholder resultater for alle tilstande i modellen.
 
     Attributes
     ----------
@@ -50,44 +89,46 @@ class FremregningsSkridt:
         Tid fra tegningsdato i år.
     alder:
         Forsikringstagers alder på tidspunkt t.
-    prob_i_live:
-        Sandsynlighed for at policen er I_LIVE på tidspunkt t,
-        dvs. p(t) = exp(−∫₀ᵗ µ(x+s) ds).
-    aldersopsparing_dkk:
-        Betinget forventet aldersopsparing i DKK (givet I_LIVE).
-    ratepension_dkk:
-        Betinget forventet ratepensionsopsparing i DKK (givet I_LIVE).
-    livrente_dkk:
-        Betinget forventet livrentedepot i DKK (givet I_LIVE).
-    total_depot_dkk:
-        Samlet betinget forventet depot i DKK (givet I_LIVE).
-    forventet_depot_dkk:
-        Sandsynlighedsvægtet forventet depot i DKK = prob_i_live × total_depot_dkk.
+    tilstande:
+        Liste af ``TilstandsSkridt`` — ét element per tilstand i modellen.
     indbetaling_dkk:
-        Indbetalt beløb i dette tidsstep (DKK).
+        Samlet indbetalt beløb fra I_LIVE-tilstanden i dette tidsstep (DKK).
     udbetaling_dkk:
-        Udbetalt beløb i dette tidsstep (DKK).
+        Samlet udbetalt beløb fra I_LIVE-tilstanden i dette tidsstep (DKK).
     omkostning_dkk:
-        Omkostning i dette tidsstep (DKK).
-    risikosum_dkk:
-        Samlet risikosum R_ald + R_rate + R_liv (DKK) — biometrisk kopplingsled.
+        Samlet omkostning fra I_LIVE-tilstanden i dette tidsstep (DKK).
     enhedspris:
         Enhedspris P(t) på tidspunkt t (DKK/enhed).
     """
 
     t: float
     alder: float
-    prob_i_live: float
-    aldersopsparing_dkk: float
-    ratepension_dkk: float
-    livrente_dkk: float
-    total_depot_dkk: float
-    forventet_depot_dkk: float
+    tilstande: list[TilstandsSkridt]
     indbetaling_dkk: float
     udbetaling_dkk: float
     omkostning_dkk: float
-    risikosum_dkk: float
     enhedspris: float
+
+    def _find(self, tilstand: PolicyState) -> TilstandsSkridt | None:
+        """Opslag på et ``TilstandsSkridt`` med givet tilstand."""
+        return next((s for s in self.tilstande if s.tilstand == tilstand), None)
+
+    @property
+    def i_live(self) -> TilstandsSkridt | None:
+        """``TilstandsSkridt`` for I_LIVE-tilstanden (None hvis ikke i modellen)."""
+        return self._find(PolicyState.I_LIVE)
+
+    @property
+    def prob_i_live(self) -> float:
+        """Sandsynlighed for I_LIVE på tidspunkt t (0.0 hvis ikke i modellen)."""
+        s = self.i_live
+        return s.prob if s is not None else 0.0
+
+    @property
+    def forventet_depot_dkk(self) -> float:
+        """Sandsynlighedsvægtet forventet total depot i DKK for I_LIVE-tilstanden."""
+        s = self.i_live
+        return s.forventet_depot_dkk if s is not None else 0.0
 
 
 def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
@@ -98,22 +139,25 @@ def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
     til de tre depoter baseret på deres aktuelle enhedsandele.
     Er alle depoter tomme, fordeles indbetalingen ligeligt (1/3 til hvert depot).
 
-    Udbetalinger og omkostninger er nul i denne simple model
-    (omkostningssatser defineres i Phase 2+).
+    Udbetalinger og omkostninger er nul i denne simple model.
+
+    Håndterer automatisk andre tilstande (f.eks. INVALID) ved at returnere
+    nul-cashflow hvis ``policy.er_under_udbetaling`` er sat eller for
+    tilstande der ikke er I_LIVE.
 
     Parameters
     ----------
     policy:
         Policyen hvis cashflows skal beregnes.
     t:
-        Tid fra tegningsdato (år) — ikke brugt i denne simple model.
+        Tid fra tegningsdato (år).
 
     Returns
     -------
     CashflowSats
         Cashflow-satser i DKK/år.
     """
-    if policy.er_under_udbetaling:
+    if policy.er_under_udbetaling or policy.tilstand != PolicyState.I_LIVE:
         return CashflowSats()
 
     indbetaling_aar = policy.loen * policy.indbetalingsprocent
@@ -137,13 +181,13 @@ def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
     """
     Standard risikosum-funktion for rent unit-link uden ekstra dødsbenefit.
 
-    Returnerer R_i = 0 for alle depoter, svarende til at dødsbenefit = depot-
-    værdi og DOED-reserven er nul:
+    Returnerer R_ij_d = 0 for alle depoter, svarende til at dødsbenefit =
+    depotsværdi og DOED-reserven er nul:
 
-        R_i = S_i^{dead} + V_i^{DOED} − V_i^{I_LIVE} = V_i − 0 − V_i = 0
+        R_ij_d = S_ij_d + V_j_d − V_i_d = V_i_d + 0 − V_i_d = 0
 
-    Det biometriske led −µ·R_i bidrager numerisk med nul, men er strukturelt
-    til stede i ligningerne (se ``thiele_step``).
+    Det biometriske led −µ_ij·R_ij_d bidrager numerisk med nul, men er
+    strukturelt til stede i ligningerne (se ``thiele_step``).
 
     Parameters
     ----------
@@ -155,47 +199,79 @@ def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
     Returns
     -------
     RisikoSummer
-        Risikosum med R_ald = R_rate = R_liv = 0.
+        Risikosum med alle depot-værdier = 0.
     """
     return RisikoSummer()
+
+
+def standard_toetilstands_model(biometric: "BiometricModel") -> Tilstandsmodel:  # noqa: F821
+    """
+    Fabriksfunktion: standard to-tilstands-model med I_LIVE → DOED.
+
+    Opretter en ``Tilstandsmodel`` med én overgang: I_LIVE → DOED med
+    Gompertz-Makeham (eller anden ``BiometricModel``) som intensitet.
+    Risikosummen er nul (rent unit-link).
+
+    Parameters
+    ----------
+    biometric:
+        Biometrisk model der leverer dødelighedsintensiteten µ(x+t).
+
+    Returns
+    -------
+    Tilstandsmodel
+        Tilstandsmodel med overgang I_LIVE → DOED.
+    """
+    from verd.overgang import BiometriOvergangsIntensitet, Overgang
+
+    return Tilstandsmodel(
+        overgange=[
+            Overgang(
+                fra=PolicyState.I_LIVE,
+                til=PolicyState.DOED,
+                intensitet=BiometriOvergangsIntensitet(biometric),
+                risikosum_func=nul_risikosum,
+            )
+        ]
+    )
 
 
 def fremregn(
     distribution: PolicyDistribution,
     antal_skridt: int,
-    biometric: BiometricModel,
     market: FinancialMarket,
+    tilstandsmodel: Tilstandsmodel,
     cashflow_funktion: CashflowFunktion = simpel_opsparings_cashflow,
-    risikosum_funktion: RisikosumFunktion = nul_risikosum,
     dt: float = 1.0 / 12.0,
     t_0: float = 0.0,
 ) -> list[FremregningsSkridt]:
     """
     Sandsynlighedsvægtet fremregning via koblede Thiele-ligninger.
 
-    Kombinerer for hvert tidsstep:
-      1. Koblede Thiele-skridt: fremregner det betingede depot givet I_LIVE,
-         inkl. det biometriske kopplingsled −µ·R_i for hvert depot.
-      2. Biometri-skridt: opdaterer overlevelsessandsynlighed via Kolmogorov.
+    For hvert tidsstep:
+      1. Thiele-skridt for hver aktiv (ikke-absorberende) tilstand:
+         - Beregn cashflows via ``cashflow_funktion(policy_i, t)``
+         - Beregn overgangsled: [(µ_ij, R_ij)] for hvert udgående overgang
+         - Kald ``thiele_step`` → opdaterede betingede depoter
+      2. Kolmogorov fremadligning (Euler) for alle tilstande:
+         Δp_i = dt · [Σ_{j→i} µ_ji·p_j  −  Σ_{i→j} µ_ij·p_i]
 
     Parameters
     ----------
     distribution:
         Initial ``PolicyDistribution``. Typisk fra ``initial_distribution(policy)``.
-        Kun I_LIVE-tilstanden fremregnes; DOED-tilstanden er absorberende.
+        Hvert ``Policy``-objekt har et ``tilstand``-felt der identificerer tilstanden.
+        Absorberende tilstande (ingen udgående overgange) fremregnes ikke via Thiele
+        — kun sandsynligheder opdateres.
     antal_skridt:
         Antal tidsstep der fremregnes (f.eks. 12 × antal_år).
-    biometric:
-        Biometrisk model — leverer µ(x+t) til både Thiele-steget og
-        sandsynlighedsopdateringen.
     market:
         Finansielt marked — leverer enhedspris P(t).
+    tilstandsmodel:
+        Definition af tilstandsrummet: alle overgange med intensiteter og risikosummer.
     cashflow_funktion:
         ``(Policy, t) → CashflowSats`` — cashflows for hvert skridt.
         Standard: ``simpel_opsparings_cashflow``.
-    risikosum_funktion:
-        ``(Policy, t) → RisikoSummer`` — risikosummer R_i per skridt.
-        Standard: ``nul_risikosum`` (rent unit-link, alle R_i = 0).
     dt:
         Tidsstep i år. Standard: 1/12 (månedligt).
     t_0:
@@ -204,45 +280,70 @@ def fremregn(
     Returns
     -------
     list[FremregningsSkridt]
-        Tidsserie af fremregningsresultater. Første element svarer til t_0
-        (initial tilstand); hvert efterfølgende element er ét skridt fremme.
+        Tidsserie af fremregningsresultater. Første element svarer til t_0;
+        hvert efterfølgende element er ét skridt fremme.
 
     Raises
     ------
     ValueError
-        Hvis ``distribution`` ikke indeholder en I_LIVE-tilstand.
+        Hvis ``distribution`` er tom.
     """
-    i_live_entries = [
-        (p, prob) for p, prob in distribution if p.tilstand == PolicyState.I_LIVE
-    ]
-    if not i_live_entries:
-        raise ValueError("distribution indeholder ingen I_LIVE-tilstand")
+    if not distribution:
+        raise ValueError("distribution er tom")
 
-    policy, prob_i_live = i_live_entries[0]
-    alder_ved_tegning = policy.alder_ved_tegning()
+    # Byg den interne tilstandstabel: {PolicyState: (Policy, prob)}
+    # Policy-objekterne bærer depotværdierne for den givne tilstand.
+    tilstands_dict: dict[PolicyState, tuple[Policy, float]] = {}
+    for pol, prob in distribution:
+        tilstands_dict[pol.tilstand] = (pol, prob)
+
+    # Sikr at alle tilstande der optræder i modellen er repræsenteret,
+    # opret manglende med nul-depoter og nul-sandsynlighed.
+    reference_policy = distribution[0][0]
+    import dataclasses as _dc
+    for tilstand in tilstandsmodel.alle_tilstande():
+        if tilstand not in tilstands_dict:
+            nul_policy = _dc.replace(
+                reference_policy,
+                aldersopsparing=0.0,
+                ratepensionsopsparing=0.0,
+                livrentedepot=0.0,
+                tilstand=tilstand,
+            )
+            tilstands_dict[tilstand] = (nul_policy, 0.0)
+
+    alder_ved_tegning = reference_policy.alder_ved_tegning()
+    aktive = tilstandsmodel.ikke_absorberende()
     t = t_0
+
+    # -----------------------------------------------------------------------
+    # Hjælpefunktion: byg TilstandsSkridt-liste fra tilstands_dict
+    # -----------------------------------------------------------------------
+    def _byg_tilstande_skridt(t_: float) -> list[TilstandsSkridt]:
+        P = market.enhedspris(t_)
+        return [
+            TilstandsSkridt(
+                tilstand=tilstand,
+                prob=prob,
+                aldersopsparing_dkk=pol.aldersopsparing * P,
+                ratepension_dkk=pol.ratepensionsopsparing * P,
+                livrente_dkk=pol.livrentedepot * P,
+            )
+            for tilstand, (pol, prob) in tilstands_dict.items()
+        ]
 
     # -----------------------------------------------------------------------
     # Initial tilstand (t = t_0)
     # -----------------------------------------------------------------------
-    P_t = market.enhedspris(t)
-    total_depot_dkk = policy.total_enheder() * P_t
-
     skridt: list[FremregningsSkridt] = [
         FremregningsSkridt(
             t=t,
             alder=alder_ved_tegning + t,
-            prob_i_live=prob_i_live,
-            aldersopsparing_dkk=policy.aldersopsparing * P_t,
-            ratepension_dkk=policy.ratepensionsopsparing * P_t,
-            livrente_dkk=policy.livrentedepot * P_t,
-            total_depot_dkk=total_depot_dkk,
-            forventet_depot_dkk=prob_i_live * total_depot_dkk,
+            tilstande=_byg_tilstande_skridt(t),
             indbetaling_dkk=0.0,
             udbetaling_dkk=0.0,
             omkostning_dkk=0.0,
-            risikosum_dkk=0.0,
-            enhedspris=P_t,
+            enhedspris=market.enhedspris(t),
         )
     ]
 
@@ -251,43 +352,78 @@ def fremregn(
     # -----------------------------------------------------------------------
     for _ in range(antal_skridt):
         alder = alder_ved_tegning + t
-        cashflows = cashflow_funktion(policy, t)
-        risikosum = risikosum_funktion(policy, t)
 
-        # Koblede Thiele-skridt: betinget depotfremregning inkl. −µ·R_i
-        policy_ny = thiele_step(policy, t, dt, biometric, market, cashflows, risikosum)
+        # Forudberegn intensiteter µ_ij for alle overgange ved denne alder
+        mu_vaerdier: dict[tuple[PolicyState, PolicyState], float] = {
+            (o.fra, o.til): o.intensitet.intensitet(alder)
+            for o in tilstandsmodel.overgange
+        }
 
-        # Kolmogorov fremadligning: p(t+dt) = p(t) · exp(−µ(x+t)·dt)
-        mu = biometric.mortality_intensity(alder)
-        prob_i_live_ny = prob_i_live * math.exp(-mu * dt)
+        # ---- 1. Thiele-skridt for aktive tilstande -------------------------
+        ny_policies: dict[PolicyState, Policy] = {}
+        total_indbetaling = 0.0
+        total_udbetaling = 0.0
+        total_omkostning = 0.0
 
+        for tilstand in aktive:
+            pol, prob = tilstands_dict[tilstand]
+
+            cashflows = cashflow_funktion(pol, t)
+
+            # Byg overgangs_led: [(µ_ij, R_ij)] for hvert udgående overgang
+            overgangs_led: list[tuple[float, RisikoSummer]] = [
+                (
+                    mu_vaerdier[(o.fra, o.til)],
+                    o.risikosum_func(pol, t),
+                )
+                for o in tilstandsmodel.ud_overgange(tilstand)
+            ]
+
+            ny_policies[tilstand] = thiele_step(pol, t, dt, market, cashflows, overgangs_led)
+
+            if tilstand == PolicyState.I_LIVE:
+                total_indbetaling += cashflows.total_indbetaling * dt
+                total_udbetaling += cashflows.total_udbetaling * dt
+                total_omkostning += cashflows.omkostning * dt
+
+        # ---- 2. Kolmogorov fremadligning (Euler) ---------------------------
+        # Δp_i = dt · [Σ_{j→i} µ_ji·p_j  −  Σ_{i→j} µ_ij·p_i]
+        nye_probs: dict[PolicyState, float] = {}
+        for tilstand in tilstands_dict:
+            _, p_i = tilstands_dict[tilstand]
+
+            # Ind-strøm: sandsynlighed der ankommer fra andre tilstande
+            ind = sum(
+                mu_vaerdier[(o.fra, o.til)] * tilstands_dict[o.fra][1]
+                for o in tilstandsmodel.overgange
+                if o.til == tilstand and o.fra != tilstand
+            )
+            # Ud-strøm: sandsynlighed der forlader denne tilstand
+            ud = sum(
+                mu_vaerdier[(o.fra, o.til)] * p_i
+                for o in tilstandsmodel.ud_overgange(tilstand)
+            )
+            nye_probs[tilstand] = p_i + dt * (ind - ud)
+
+        # ---- Opdater tilstands_dict ----------------------------------------
         t += dt
-        P_t_ny = market.enhedspris(t)
-        total_depot_dkk_ny = policy_ny.total_enheder() * P_t_ny
 
+        for tilstand in tilstands_dict:
+            pol_gammel, _ = tilstands_dict[tilstand]
+            pol_ny = ny_policies.get(tilstand, pol_gammel)  # absorberende: uændret
+            tilstands_dict[tilstand] = (pol_ny, max(0.0, nye_probs[tilstand]))
+
+        # ---- Optag skridt --------------------------------------------------
         skridt.append(
             FremregningsSkridt(
                 t=t,
                 alder=alder_ved_tegning + t,
-                prob_i_live=prob_i_live_ny,
-                aldersopsparing_dkk=policy_ny.aldersopsparing * P_t_ny,
-                ratepension_dkk=policy_ny.ratepensionsopsparing * P_t_ny,
-                livrente_dkk=policy_ny.livrentedepot * P_t_ny,
-                total_depot_dkk=total_depot_dkk_ny,
-                forventet_depot_dkk=prob_i_live_ny * total_depot_dkk_ny,
-                indbetaling_dkk=cashflows.total_indbetaling * dt,
-                udbetaling_dkk=cashflows.total_udbetaling * dt,
-                omkostning_dkk=cashflows.omkostning * dt,
-                risikosum_dkk=(
-                    risikosum.aldersopsparing
-                    + risikosum.ratepension
-                    + risikosum.livrente
-                ),
-                enhedspris=P_t_ny,
+                tilstande=_byg_tilstande_skridt(t),
+                indbetaling_dkk=total_indbetaling,
+                udbetaling_dkk=total_udbetaling,
+                omkostning_dkk=total_omkostning,
+                enhedspris=market.enhedspris(t),
             )
         )
-
-        policy = policy_ny
-        prob_i_live = prob_i_live_ny
 
     return skridt

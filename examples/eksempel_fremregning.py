@@ -2,7 +2,8 @@
 Eksempel: Thiele-baseret sandsynlighedsvægtet fremregning (Phase 2 done-kriterium).
 
 Demonstrerer:
-  - Fremregning af betingede forventede depoter via Thieles differentialligning
+  - Fremregning via koblede Thiele-ligninger med vilkårligt tilstandsrum
+  - 2-tilstands standardmodel (I_LIVE → DOED) via standard_toetilstands_model()
   - Sandsynlighedsvægtet depot (prob_I_LIVE × betinget depot)
   - Cashflow-tabel for en eksempelpolicy over 5 år (60 månedlige skridt)
 
@@ -20,6 +21,7 @@ from verd import (
     fremregn,
     initial_distribution,
     simpel_opsparings_cashflow,
+    standard_toetilstands_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,14 +52,19 @@ police = Policy(
 fordeling = initial_distribution(police)
 
 # ---------------------------------------------------------------------------
-# Fremregning — 5 år (60 månedlige skridt) via Thieles ODE
+# Tilstandsmodel — standard to-tilstands (I_LIVE → DOED)
+# ---------------------------------------------------------------------------
+tilstandsmodel = standard_toetilstands_model(biometri)
+
+# ---------------------------------------------------------------------------
+# Fremregning — 5 år (60 månedlige skridt)
 # ---------------------------------------------------------------------------
 ANTAL_AAR = 5
 skridt = fremregn(
     distribution=fordeling,
     antal_skridt=ANTAL_AAR * 12,
-    biometric=biometri,
     market=marked,
+    tilstandsmodel=tilstandsmodel,
     cashflow_funktion=simpel_opsparings_cashflow,
     dt=1 / 12,
     t_0=0.0,
@@ -77,14 +84,16 @@ print(
 print("-" * 100)
 
 for s in skridt:
-    # Vis hvert 12. skridt (månedligt → årligt) plus det initiale
     step_nr = round(s.t * 12)
     if step_nr % 12 == 0:
+        il = s.i_live
+        if il is None:
+            continue
         print(
-            f"{s.t:>7.2f}  {s.alder:>6.2f}  {s.prob_i_live:>10.6f}  "
-            f"{s.aldersopsparing_dkk:>12,.0f}  {s.ratepension_dkk:>12,.0f}  "
-            f"{s.livrente_dkk:>12,.0f}  "
-            f"{s.total_depot_dkk:>13,.0f}  {s.forventet_depot_dkk:>13,.0f}  "
+            f"{s.t:>7.2f}  {s.alder:>6.2f}  {il.prob:>10.6f}  "
+            f"{il.aldersopsparing_dkk:>12,.0f}  {il.ratepension_dkk:>12,.0f}  "
+            f"{il.livrente_dkk:>12,.0f}  "
+            f"{il.total_depot_dkk:>13,.0f}  {il.forventet_depot_dkk:>13,.0f}  "
             f"{s.indbetaling_dkk:>11,.0f}  {s.enhedspris:>8.4f}"
         )
 
@@ -103,9 +112,12 @@ print(
 )
 print("-" * 100)
 for s in skridt[:7]:
+    il = s.i_live
+    if il is None:
+        continue
     print(
-        f"{s.t:>7.4f}  {s.alder:>6.2f}  {s.prob_i_live:>10.8f}  "
-        f"{s.total_depot_dkk:>13,.2f}  {s.forventet_depot_dkk:>13,.2f}  "
+        f"{s.t:>7.4f}  {s.alder:>6.2f}  {il.prob:>10.8f}  "
+        f"{il.total_depot_dkk:>13,.2f}  {il.forventet_depot_dkk:>13,.2f}  "
         f"{s.indbetaling_dkk:>13,.2f}  {s.enhedspris:>8.4f}"
     )
 
