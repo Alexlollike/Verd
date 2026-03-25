@@ -73,6 +73,20 @@ class Policy:
     livrentedepot: float
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
 
+    def alder_ved_tegning(self) -> float:
+        """
+        Forsikringstagers alder i år ved tegningsdato.
+
+        Bruges til at beregne alderen på et vilkårligt fremtidigt tidspunkt t:
+            alder(t) = alder_ved_tegning() + t
+
+        Returns
+        -------
+        float
+            Alder i år (kan have decimaler).
+        """
+        return (self.tegningsdato - self.foedselsdato).days / 365.25
+
     def total_enheder(self) -> float:
         """
         Samlet antal enheder (units) på tværs af alle tre depoter.

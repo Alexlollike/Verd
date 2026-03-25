@@ -12,6 +12,13 @@ from verd.biometric_model import BiometricModel
 from verd.gompertz_makeham import GompertzMakeham
 from verd.financial_market import FinancialMarket
 from verd.deterministic_market import DeterministicMarket
+from verd.thiele import CashflowSats, thiele_step
+from verd.fremregning import (
+    CashflowFunktion,
+    FremregningsSkridt,
+    simpel_opsparings_cashflow,
+    fremregn,
+)
 
 __all__ = [
     "PolicyState",
@@ -22,4 +29,10 @@ __all__ = [
     "GompertzMakeham",
     "FinancialMarket",
     "DeterministicMarket",
+    "CashflowSats",
+    "thiele_step",
+    "CashflowFunktion",
+    "FremregningsSkridt",
+    "simpel_opsparings_cashflow",
+    "fremregn",
 ]
