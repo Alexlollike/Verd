@@ -20,6 +20,7 @@ from verd.overgang import (
     Overgang,
     Tilstandsmodel,
 )
+from verd.plot import plot_fremregning
 from verd.fremregning import (
     CashflowFunktion,
     RisikosumFunktion,
@@ -53,6 +54,8 @@ __all__ = [
     "KonstantOvergangsIntensitet",
     "Overgang",
     "Tilstandsmodel",
+    # Visualisering
+    "plot_fremregning",
     # Fremregning
     "CashflowFunktion",
     "RisikosumFunktion",
