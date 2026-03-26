@@ -48,12 +48,11 @@ Plans:
   3. Overlevelsessandsynlighed pr. tidsstep beregnes via p = exp(-mu * dt) med dt = 1/12
   4. PolicyDistribution opdateres korrekt over tid — sandsynligheder summerer til 1 i hele fremregningsperioden
   5. En cashflow-tabel for en eksempelpolicy kan printes med tidskolonne, indbetaling, udbetaling og depotudvikling
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Cashflow-fremregningsfunktion og tidsstep-logik
-- [ ] 02-02: Sandsynlighedsvægtet PolicyDistribution-opdatering
-- [ ] 02-03: Cashflow-tabelprint for eksempelpolicy
+- [ ] 02-01-PLAN.md — fremregn() funktion i verd/projection.py og pandas-afhangighed
+- [ ] 02-02-PLAN.md — verd/__init__.py eksport og examples/eksempel_cashflow.py
 
 ### Phase 3: Reserveberegning
 **Goal**: Biblioteket kan beregne et korrekt reservetal for en eksempelpolicy via Thieles differentialligning
@@ -105,7 +104,7 @@ Phases execute in numeric order: 1 (complete) → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data & Antagelser | 4/4 | Complete | 2026-02-28 |
-| 2. Cashflow-fremregning | 0/3 | Not started | - |
+| 2. Cashflow-fremregning | 0/2 | Ready to execute | - |
 | 3. Reserveberegning | 0/2 | Not started | - |
 | 4. Validering & Output | 0/2 | Not started | - |
 | 5. Testscripts | 0/2 | Not started | - |
