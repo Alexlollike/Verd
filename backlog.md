@@ -355,3 +355,65 @@ Hvis `π_netto < 0` (risikopræmie overstiger indbetalingen) trækkes difference
   - [ ] `π_netto < 0`: differencen trækkes korrekt fra aldersopsparingen
 
 **Berørte filer**: ny `verd/risiko.py`, `verd/policy.py`, `verd/indbetaling.py`, `verd/__init__.py`
+
+---
+
+## Todo H — Stresstesting af antagelser
+
+**Baggrund**: I praksis ønsker aktuar at vurdere følsomheden af cashflows og reserver
+over for ændringer i centrale antagelser — typisk dødelighedsintensiteten (`µ(x)`),
+afkastraten (`r`), indbetalingsprocenten eller omkostningssatser. Et stresstest-framework
+skal gøre det nemt at køre den samme fremregning under to eller flere antagelsessæt og
+sammenligne resultaterne — fx det aggregerede cashflow for en bestand af policer under
+henholdsvis "base"-dødelighedsintensitet og en "stresset" version (fx `µ_stress(x) = 1.2 · µ(x)`),
+eller med forhøjede administrationsomkostninger.
+
+**Afhængigheder**: Bygger på `fremregn()` (Fase 2) og evt. `fremregn_portefolje()` (Todo E).
+Kan implementeres gradvist: simpel enkeltpolicestress før porteføljestress.
+
+**Modellering**:
+En "stresset" `BiometricModel` er blot en wrapper der skalerer intensiteten:
+
+```python
+@dataclass
+class SkaleretBiometricModel(BiometricModel):
+    base_model: BiometricModel
+    skaleringsfaktor: float   # fx 1.20 = +20% dødelighedsintensitet
+
+    def mortality_intensity(self, alder: float) -> float:
+        return self.skaleringsfaktor * self.base_model.mortality_intensity(alder)
+```
+
+Et `Scenarie` samler alle de antagelser der varieres på tværs af kørsler:
+
+```python
+@dataclass
+class Scenarie:
+    navn: str
+    biometric_model: BiometricModel
+    financial_market: FinancialMarket
+    omkostningssats_overrides: dict[str, float] | None = None
+    # Nøgle: OmkostningssatsID, værdi: ny sats — øvrige satser er uændrede
+```
+
+**Opgaver**:
+- [ ] Implementér `SkaleretBiometricModel` i `verd/stresstest.py`
+- [ ] Implementér `Scenarie(dataclass)` i `verd/stresstest.py`
+  - `navn: str`, `biometric_model: BiometricModel`, `financial_market: FinancialMarket`,
+    `omkostningssats_overrides: dict[str, float] | None = None`
+- [ ] Implementér `sammenlign_scenarier(policer, scenarier, t_start, t_slut, dt) → dict[str, pd.DataFrame]`
+  - Kør `fremregn()` (eller `fremregn_portefolje()`) per scenarie
+  - Returnér dict `{scenarie_navn: cashflow_dataframe}` — nemt at sende til plot
+- [ ] Tilføj `examples/eksempel_stresstest.py`:
+  - Definér en bestand af 3–5 policer med varierende alder og depot
+  - Kør tre scenarier: `Base`, `DødelighedStress` (`1.2 · µ(x)`), `OmkostningsStress` (forhøjede adm.-satser)
+  - Print aggregeret cashflow-tabel side om side
+  - Plot forskel i forventet udbetaling og omkostninger over tid
+- [ ] Unit-tests i `tests/test_stresstest.py`:
+  - [ ] `SkaleretBiometricModel(model, 1.0)` giver identiske cashflows som `model`
+  - [ ] `SkaleretBiometricModel(model, 1.2)` giver højere forventet dødsudbetaling end `model`
+  - [ ] Omkostningsstress: forhøjet sats øger samlede omkostninger monotont
+  - [ ] `sammenlign_scenarier` returnerer én nøgle per scenarie
+  - [ ] Alle DataFrames har identiske tidskolonner (samme tidsakse)
+
+**Berørte filer**: ny `verd/stresstest.py`, `verd/__init__.py`

@@ -90,51 +90,33 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 
 ## Fase 2 — Cashflow-fremregning
 
+> **OBS:** Arkitekturen er implementeret anderledes end planlagt herunder. I stedet for `CashflowRaekke`/`cashflow.py` bruger implementationen `FremregningsSkridt` i `fremregning.py`, `thiele.py` (Thieles ligning direkte), `udbetaling.py`, `omkostning.py` og `overgang.py` med `Tilstandsmodel`. Tjekkene nedenfor er justeret efter hvad der faktisk er implementeret.
+
 ### Datastruktur
-- [ ] Opret `verd/cashflow.py` med `CashflowRaekke` dataklasse:
-  - `t: float` — tidspunkt (år fra tegningsdato)
-  - `alder: float` — forsikringstagers alder på tidspunkt t
-  - `p_alive: float` — sandsynlighed for at være i live
-  - `enhedspris: float` — fondens kurs på tidspunkt t
-  - `indbetaling_dkk: float` — bruttopræmie (0 i udbetalingsfase)
-  - `indbetaling_enheder: float` — præmie omregnet til enheder
-  - `udbetaling_dkk: float` — ydelse udbetalt (0 i opsparingsfase)
-  - `udbetaling_enheder: float` — ydelse omregnet til enheder
-  - `risikopraemie_enheder: float` — biometrisk risikopræmie trukket fra depot
-  - `depot_enheder_efter: float` — samlet depotenhed efter dette trin
+- [ ] Opret `verd/cashflow.py` med `CashflowRaekke` dataklasse *(ikke implementeret — erstattet af `FremregningsSkridt` i `fremregning.py`)*
 
 ### Præmieberegning (opsparingsfase)
-- [ ] Implementer `beregn_maanedlig_praemie_dkk(police)` → `loen × indbetalingsprocent / 12`
-- [ ] Implementer `praemie_til_enheder(praemie_dkk, marked, t)` → `dkk_til_enheder(praemie_dkk, t)`
+- [ ] Implementer `beregn_maanedlig_praemie_dkk(police)` → `loen × indbetalingsprocent / 12` *(ikke implementeret som selvstændig funktion — håndteres via `simpel_opsparings_cashflow` i `fremregning.py`)*
+- [ ] Implementer `praemie_til_enheder(praemie_dkk, marked, t)` → `dkk_til_enheder(praemie_dkk, t)` *(ikke implementeret som selvstændig funktion)*
 
 ### Risikopræmie
-- [ ] Definer hvad der sker ved død: depot udbetales til begunstiget (sum at risk = depotværdi)
-- [ ] Implementer `beregn_risikopraemie_enheder(police, biometri, alder, dt)`:
-  - `q = death_probability(alder, dt)`
-  - Risikopræmien er den forventede omkostning ved dødsfald i perioden: `depot_enheder × q`
-  - (Simpel model: ingen overkrydsende dækning i v1.0)
+- [ ] Implementer `beregn_risikopraemie_enheder(police, biometri, alder, dt)` *(ikke implementeret som selvstændig funktion — håndteres via `RisikoSummer` og `thiele_step()` i `thiele.py`)*
 
 ### Ét tidsstep
-- [ ] Implementer `fremregn_et_trin(police, p_alive, biometri, marked, t, dt)` → `CashflowRaekke`:
-  - Rækkefølge: **indbetaling → afkast (via enhedspris) → biometri → omkostninger**
-  - Beregn alder på tidspunkt t
-  - Tilskriv indbetaling i enheder (hvis opsparingsfase)
-  - Afkast afspejles automatisk via `enhedspris(t+dt)` (enheder ændres ikke)
-  - Træk risikopræmie i enheder fra depot
-  - Opdater `p_alive` med overlevelsessandsynlighed
+- [ ] Implementer `fremregn_et_trin()` *(ikke implementeret — erstattet af `thiele_step()` i `thiele.py`)*
 
 ### Fuld fremregning
-- [ ] Implementer `fremregn(police, biometri, marked, dt=1/12, max_alder=110)` → `list[CashflowRaekke]`
-- [ ] Stopkriterium: `p_alive < 1e-6` eller alder ≥ `max_alder`
-- [ ] Håndter overgang til udbetalingsfase når `er_under_udbetaling = True`
-- [ ] Implementer aldersopsparing-udbetaling: engangsudbetaling ved første trin i udbetalingsfase
-- [ ] Implementer ratepension-udbetaling: månedlig udbetaling = depot / (resterende måneder), over `ratepensionsvarighed` år
-- [ ] Implementer livrente-udbetaling: beregn månedlig ydelse fra livrentedepot (aktuariel annuitet — simpel version: `depot / forventet_restlevetid`)
+- [x] Implementer `fremregn(...)` → eksisterer i `verd/fremregning.py`
+- [x] Stopkriterium implementeret
+- [x] Håndter overgang til udbetalingsfase
+- [x] Implementer aldersopsparing-udbetaling (i `verd/udbetaling.py`)
+- [x] Implementer ratepension-udbetaling via `sikker_annuitet()` (i `verd/udbetaling.py`)
+- [x] Implementer livrente-udbetaling via `livrente_annuitet()` (i `verd/udbetaling.py`)
 
 ### Output
 - [ ] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
 - [ ] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
-- [ ] Opdater `examples/eksempel_police.py` med cashflow-tabel-udskrift (done-kriterium fase 2)
+- [x] `examples/eksempel_fremregning.py` eksisterer (erstattet `eksempel_police.py` som done-kriterium)
 
 ### Tests — Fase 2
 - [ ] `tests/test_cashflow.py`
@@ -168,7 +150,7 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
   - Første og sidste 5 rækker af cashflowtabel
 - [ ] Opdater `examples/eksempel_police.py` til komplet end-to-end eksempel (done-kriterium fase 4)
 
-### Tests — Fase 4
+### Tests — Fase 3
 - [ ] `tests/test_validering.py`
   - [ ] `check_sandsynligheder` kaster `ValueError` hvis sum ≠ 1.0
   - [ ] `check_p_alive_monoton` kaster `ValueError` ved stigende p_alive
@@ -177,7 +159,7 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 
 ---
 
-## Fase 5 — Testscripts med kendte svar
+## Fase 4 — Testscripts med kendte svar
 
 ### Håndberegnet faciteksempel
 - [ ] Opret `docs/facit_eksempel.md` — komplet håndberegnet eksempel:
