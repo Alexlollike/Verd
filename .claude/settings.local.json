@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(pip install:*)",
-      "Bash(python examples/eksempel_fremregning.py)"
+      "Bash(python examples/eksempel_fremregning.py)",
+      "Bash(python -c \"import verd; print\\(''OK''\\)\")",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python examples/eksempel_police.py)",
+      "Bash(python examples/eksempel_plot.py)",
+      "Bash(python -c \":*)"
     ]
   }
 }

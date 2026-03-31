@@ -9,7 +9,7 @@ Brug `[x]` når en opgave er færdig.
 ### v1.0 — Output og validering (Fase 2–3)
 
 **Manglende output-funktioner (Fase 2)**
-- [ ] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
+- [x] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
 - [ ] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
 
 **Validering (Fase 3)**
@@ -19,7 +19,7 @@ Brug `[x]` når en opgave er færdig.
 - [ ] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
 
 **CSV og formateret output (Fase 3)**
-- [ ] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
+- [x] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
 - [ ] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
   - Policestamdata
   - Nøgletal (depotværdi, V(0), sum af indbetalinger, sum af ydelser)
@@ -178,8 +178,8 @@ afgår (død, genkøb, fripolice, pensionering). Hvert event medfører tilhøren
 (tegningsgebyr, genkøbsomkostning, fripoliceomkostning) og ændrer porteføljens samlede
 cashflow.
 
-**Afhængigheder**: Kræver **A** (korrekt dødelighedsmodel) + **B** (livrente-type)
-+ **C** (efterladtedækning) — dvs. fuld enkeltpolicemodel på plads.
+**Afhængigheder**: Kræver at Fase 2–3 er afsluttede (`fremregn()` og reserveberegning klar).
+Fungerer med enhver kombination af `BiometricModel` og produktkonfiguration — A, B og C er ikke nødvendige forudsætninger.
 
 **Opgaver**:
 - [ ] Definér `AfgangAarsag(enum)` i `verd/portefolje.py`:
@@ -406,7 +406,7 @@ class Scenarie:
 
 ## Test
 
-### v1.0 — Fase 1b: Unit tests for eksisterende klasser
+### ~~v1.0 — Fase 1b: Unit tests for eksisterende klasser~~ ✓ FÆRDIG
 
 Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`, `P₀=100.0`
 
@@ -425,39 +425,39 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 | Månedlig præmie | 600.000 × 0,15 / 12 | **7.500,00 DKK/md.** |
 | Præmie i enh. (t=0) | 7.500 / 100 | **75,0000 enh./md.** |
 
-- [ ] `tests/test_policy_state.py`
-  - [ ] `PolicyState` har præcis `I_LIVE` og `DOED`
-  - [ ] Enum-værdier er strings (`"I_LIVE"`, `"DOED"`)
+- [x] `tests/test_policy_state.py` — 6 tests, alle grønne
+  - [x] `PolicyState` har præcis `I_LIVE` og `DOED`
+  - [x] Enum-værdier er strings (`"I_LIVE"`, `"DOED"`)
 
-- [ ] `tests/test_policy.py`
-  - [ ] `total_enheder()` returnerer sum af de tre depoter
-  - [ ] `depotvaerdi_dkk(100.0)` = `total_enheder()` × 100
-  - [ ] `depotvaerdi_dkk` er ikke et gemt felt (verificer med `dataclasses.fields()`)
-  - [ ] `tilstand` defaulter til `PolicyState.I_LIVE`
-  - [ ] `depotvaerdi_dkk(0.0)` = 0.0 (zero-enhedspris edge case)
+- [x] `tests/test_policy.py` — 13 tests, alle grønne
+  - [x] `total_enheder()` returnerer sum af de tre depoter
+  - [x] `depotvaerdi_dkk(100.0)` = `total_enheder()` × 100
+  - [x] `depotvaerdi_dkk` er ikke et gemt felt (verificer med `dataclasses.fields()`)
+  - [x] `tilstand` defaulter til `PolicyState.I_LIVE`
+  - [x] `depotvaerdi_dkk(0.0)` = 0.0 (zero-enhedspris edge case)
 
-- [ ] `tests/test_policy_distribution.py`
-  - [ ] `initial_distribution(police)` returnerer liste med præcis ét element
-  - [ ] Sandsynlighed i initial distribution = 1.0
-  - [ ] Sandsynligheder summer til 1.0
+- [x] `tests/test_policy_distribution.py` — 6 tests, alle grønne
+  - [x] `initial_distribution(police)` returnerer liste med præcis ét element
+  - [x] Sandsynlighed i initial distribution = 1.0
+  - [x] Sandsynligheder summer til 1.0
 
-- [ ] `tests/test_gompertz_makeham.py`
-  - [ ] `mortality_intensity(40)` matcher facit 0.00196393 (tolerance 1e-8)
-  - [ ] `mortality_intensity(50)` matcher facit 0.00410068 (tolerance 1e-8)
-  - [ ] `mortality_intensity(60)` matcher facit 0.00935625 (tolerance 1e-8)
-  - [ ] `mortality_intensity(x) >= 0` for x ∈ {0, 20, 40, 60, 80, 100}
-  - [ ] `mortality_intensity` er monotont stigende (intensitet ved 50 > intensitet ved 40)
-  - [ ] `survival_probability(40, 1/12)` matcher facit 0.99983637 (tolerance 1e-8)
-  - [ ] `death_probability(40, 1/12)` matcher facit 0.00016363 (tolerance 1e-8)
-  - [ ] `survival_probability + death_probability = 1.0` præcist
+- [x] `tests/test_gompertz_makeham.py` — 16 tests, alle grønne
+  - [x] `mortality_intensity(40)` matcher facit 0.00196393 (tolerance 1e-8)
+  - [x] `mortality_intensity(50)` matcher facit 0.00410068 (tolerance 1e-8)
+  - [x] `mortality_intensity(60)` matcher facit 0.00935625 (tolerance 1e-8)
+  - [x] `mortality_intensity(x) >= 0` for x ∈ {0, 20, 40, 60, 80, 100}
+  - [x] `mortality_intensity` er monotont stigende (intensitet ved 50 > intensitet ved 40)
+  - [x] `survival_probability(40, 1/12)` matcher facit 0.99983637 (tolerance 1e-8)
+  - [x] `death_probability(40, 1/12)` matcher facit 0.00016363 (tolerance 1e-8)
+  - [x] `survival_probability + death_probability = 1.0` præcist
 
-- [ ] `tests/test_deterministic_market.py`
-  - [ ] `enhedspris(0)` = `enhedspris_0` (100.0)
-  - [ ] `enhedspris(1)` matcher facit 105.12710964 (tolerance 1e-6)
-  - [ ] `enhedspris(t) > enhedspris(0)` for t > 0 og r > 0
-  - [ ] Round-trip: `dkk_til_enheder(X, t) × enhedspris(t)` = X (tolerance 1e-10)
-  - [ ] Round-trip: `enheder_til_dkk(dkk_til_enheder(X, t), t)` = X (tolerance 1e-10)
-  - [ ] `dkk_til_enheder(10000, 0)` = 100.0 (matcher facit)
+- [x] `tests/test_deterministic_market.py` — 18 tests, alle grønne
+  - [x] `enhedspris(0)` = `enhedspris_0` (100.0)
+  - [x] `enhedspris(1)` matcher facit 105.12710964 (tolerance 1e-6)
+  - [x] `enhedspris(t) > enhedspris(0)` for t > 0 og r > 0
+  - [x] Round-trip: `dkk_til_enheder(X, t) × enhedspris(t)` = X (tolerance 1e-10)
+  - [x] Round-trip: `enheder_til_dkk(dkk_til_enheder(X, t), t)` = X (tolerance 1e-10)
+  - [x] `dkk_til_enheder(10000, 0)` = 100.0 (matcher facit)
 
 ---
 
@@ -510,10 +510,10 @@ parametre: r=0.05, alpha=0.0005, beta=0.00004, sigma=0.09, alder=40, dt=1/12
 
 ## Chore
 
-### v1.0 — Test-infrastruktur
+### ~~v1.0 — Test-infrastruktur~~ ✓ FÆRDIG
 
-- [ ] Tilføj `pytest` til `pyproject.toml` under `[project.optional-dependencies] dev`
-- [ ] Opret `tests/` mappe med `tests/__init__.py`
+- [x] Tilføj `pytest` til `pyproject.toml` under `[project.optional-dependencies] dev`
+- [x] Opret `tests/` mappe med `tests/__init__.py`
 - [ ] Opret `tests/conftest.py` med delte fixtures:
   - `standard_biometri` — `GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)`
   - `standard_marked` — `DeterministicMarket(r=0.05, enhedspris_0=100.0)`

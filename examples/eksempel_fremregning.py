@@ -33,19 +33,20 @@ marked = DeterministicMarket(r=0.05, enhedspris_0=100.0)
 # ---------------------------------------------------------------------------
 # Police
 # ---------------------------------------------------------------------------
-police = Policy(
+police = Policy.fra_dkk(
     foedselsdato=date(1980, 1, 15),
     tegningsdato=date(2020, 6, 1),
     pensionsalder=67,
     er_under_udbetaling=False,
     gruppe_id="DK_MAND_2023",
     omkostningssats_id="STANDARD",
-    loen=600_000.0,             # 600.000 DKK/år
-    indbetalingsprocent=0.15,   # 15 % af løn → 90.000 DKK/år
-    aldersopsparing=1_200.0,    # 1.200 enh. × 100 DKK = 120.000 DKK
-    ratepensionsopsparing=800.0,  # 800 enh. × 100 DKK = 80.000 DKK
+    loen=600_000.0,              # 600.000 DKK/år
+    indbetalingsprocent=0.15,    # 15 % af løn → 90.000 DKK/år
+    aldersopsparing=120_000.0,   # DKK
+    ratepensionsopsparing=80_000.0,  # DKK
     ratepensionsvarighed=10,
-    livrentedepot=500.0,        # 500 enh. × 100 DKK = 50.000 DKK
+    livrentedepot=50_000.0,      # DKK
+    enhedspris=marked.enhedspris(0.0),
     tilstand=PolicyState.I_LIVE,
 )
 

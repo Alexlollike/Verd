@@ -73,6 +73,63 @@ class Policy:
     livrentedepot: float
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
 
+    @classmethod
+    def fra_dkk(
+        cls,
+        foedselsdato: date,
+        tegningsdato: date,
+        pensionsalder: int,
+        er_under_udbetaling: bool,
+        gruppe_id: str,
+        omkostningssats_id: str,
+        loen: float,
+        indbetalingsprocent: float,
+        aldersopsparing: float,
+        ratepensionsopsparing: float,
+        ratepensionsvarighed: int,
+        livrentedepot: float,
+        enhedspris: float,
+        tilstand: PolicyState = PolicyState.I_LIVE,
+    ) -> "Policy":
+        """
+        Opret en Policy med depotværdier angivet i DKK.
+
+        Konverterer automatisk DKK til enheder (units) ved hjælp af enhedsprisen
+        på oprettelsestidspunktet:
+
+            enheder = DKK / enhedspris
+
+        Internt lagres depoterne altid i enheder, men dette er den anbefalede
+        måde at oprette en ny police på.
+
+        Parameters
+        ----------
+        aldersopsparing:
+            Aldersopsparing i DKK.
+        ratepensionsopsparing:
+            Ratepensionsopsparing i DKK.
+        livrentedepot:
+            Livrentedepot i DKK.
+        enhedspris:
+            Enhedspris på oprettelsestidspunktet (DKK/enhed).
+            Brug typisk ``market.enhedspris(0.0)`` fra ``DeterministicMarket``.
+        """
+        return cls(
+            foedselsdato=foedselsdato,
+            tegningsdato=tegningsdato,
+            pensionsalder=pensionsalder,
+            er_under_udbetaling=er_under_udbetaling,
+            gruppe_id=gruppe_id,
+            omkostningssats_id=omkostningssats_id,
+            loen=loen,
+            indbetalingsprocent=indbetalingsprocent,
+            aldersopsparing=aldersopsparing / enhedspris,
+            ratepensionsopsparing=ratepensionsopsparing / enhedspris,
+            ratepensionsvarighed=ratepensionsvarighed,
+            livrentedepot=livrentedepot / enhedspris,
+            tilstand=tilstand,
+        )
+
     def alder_ved_tegning(self) -> float:
         """
         Forsikringstagers alder i år ved tegningsdato.

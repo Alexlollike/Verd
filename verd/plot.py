@@ -1,7 +1,9 @@
 """
 Plot — visualisering af sandsynlighedsvægtede tilstandsvise depoter og ydelser.
 
-Hovedfunktion: ``plot_fremregning()``
+Offentlige funktioner:
+    plot_fremregning(skridt, ...)       — plot direkte fra FremregningsSkridt-liste
+    plot_fra_dataframe(df, ...)         — plot fra pandas DataFrame (f.eks. læst fra CSV)
 
 Layoutet er fire vertikale paneler:
 
@@ -31,6 +33,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import matplotlib.figure
+    import pandas as pd
 
 # Farvepalette — konsistent på tværs af paneler
 _FARVER = {
@@ -47,81 +50,29 @@ _LABELS = {
 }
 
 
-def plot_fremregning(
-    skridt: list,
-    titel: str = "Depotudvikling — sandsynlighedsvægtede depoter",
-    pensionsalder_t: float | None = None,
-    figsize: tuple[float, float] = (11, 13),
-    gem_fil: str | None = None,
+def _plot_fra_arrays(
+    t_vals: list[float],
+    prob_vals: list[float],
+    ald_betinget: list[float],
+    rate_betinget: list[float],
+    liv_betinget: list[float],
+    ald_vaegtet: list[float],
+    rate_vaegtet: list[float],
+    liv_vaegtet: list[float],
+    udb_rate_vals: list[float],
+    udb_liv_vals: list[float],
+    titel: str,
+    pensionsalder_t: float | None,
+    figsize: tuple[float, float],
+    gem_fil: str | None,
 ) -> "matplotlib.figure.Figure":
     """
-    Plot sandsynlighedsvægtede tilstandsvise depoter, ydelser og p(I_LIVE) over tid.
+    Intern hjælpefunktion — tegner de fire paneler ud fra forudberegnede arrays.
 
-    Fire paneler:
-      1. **Betingede depoter** (givet I_LIVE) per produkt — depotværdien givet
-         at forsikringstager er i live. Stacked area.
-      2. **Sandsynlighedsvægtede depoter** E[V_d(t)] per produkt — forventet
-         depotværdi inkl. mortalitetsrisiko. Stacked area.
-      3. **Ydelser** (DKK/år) per produkt — benefit-udbetalinger i
-         udbetalingsfasen. Stacked area.
-      4. **Overlevelsessandsynlighed** p(I_LIVE) over tid.
-
-    Produkter med startværdi = 0 udelades fra depot-panelerne.
-    Ydelsespanelet viser kun produkter med positive udbetalinger.
-
-    Parameters
-    ----------
-    skridt:
-        Output fra ``fremregn()`` — ``list[FremregningsSkridt]``.
-    titel:
-        Overskrift for hele figuren.
-    pensionsalder_t:
-        Tidspunktet (år fra tegningsdato) for pensionering, vises som
-        lodret stiplet linje. ``None`` for ingen markering.
-    figsize:
-        Figurstørrelse i tommer ``(bredde, højde)``.
-    gem_fil:
-        Filsti til at gemme figuren (f.eks. ``"depot.png"``).
-        ``None`` for ikke at gemme.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Den oprettede figur.
+    Kaldes af ``plot_fremregning`` og ``plot_fra_dataframe``.
     """
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
-
-    t_vals = [s.t for s in skridt]
-
-    # Udtræk I_LIVE-data og cashflows for hvert tidsstep
-    prob_vals = []
-    ald_betinget, rate_betinget, liv_betinget = [], [], []
-    ald_vaegtet, rate_vaegtet, liv_vaegtet = [], [], []
-    udb_rate_vals, udb_liv_vals = [], []
-
-    for s in skridt:
-        il = s.i_live
-        if il is not None:
-            prob_vals.append(il.prob)
-            ald_betinget.append(il.aldersopsparing_dkk)
-            rate_betinget.append(il.ratepension_dkk)
-            liv_betinget.append(il.livrente_dkk)
-            ald_vaegtet.append(il.prob * il.aldersopsparing_dkk)
-            rate_vaegtet.append(il.prob * il.ratepension_dkk)
-            liv_vaegtet.append(il.prob * il.livrente_dkk)
-        else:
-            prob_vals.append(0.0)
-            ald_betinget.append(0.0)
-            rate_betinget.append(0.0)
-            liv_betinget.append(0.0)
-            ald_vaegtet.append(0.0)
-            rate_vaegtet.append(0.0)
-            liv_vaegtet.append(0.0)
-
-        cf = s.cashflows_i_live
-        udb_rate_vals.append(max(cf.b_ratepension, 0.0))
-        udb_liv_vals.append(max(cf.b_livrente, 0.0))
 
     # Afgør hvilke produkter der er aktive i depot-panelerne (startværdi > 0)
     aktive_depot = {
@@ -235,3 +186,150 @@ def plot_fremregning(
         fig.savefig(gem_fil, dpi=150, bbox_inches="tight")
 
     return fig
+
+
+def plot_fremregning(
+    skridt: list,
+    titel: str = "Depotudvikling — sandsynlighedsvægtede depoter",
+    pensionsalder_t: float | None = None,
+    figsize: tuple[float, float] = (11, 13),
+    gem_fil: str | None = None,
+) -> "matplotlib.figure.Figure":
+    """
+    Plot sandsynlighedsvægtede tilstandsvise depoter, ydelser og p(I_LIVE) over tid.
+
+    Fire paneler:
+      1. **Betingede depoter** (givet I_LIVE) per produkt — depotværdien givet
+         at forsikringstager er i live. Stacked area.
+      2. **Sandsynlighedsvægtede depoter** E[V_d(t)] per produkt — forventet
+         depotværdi inkl. mortalitetsrisiko. Stacked area.
+      3. **Ydelser** (DKK/år) per produkt — benefit-udbetalinger i
+         udbetalingsfasen. Stacked area.
+      4. **Overlevelsessandsynlighed** p(I_LIVE) over tid.
+
+    Produkter med startværdi = 0 udelades fra depot-panelerne.
+    Ydelsespanelet viser kun produkter med positive udbetalinger.
+
+    Parameters
+    ----------
+    skridt:
+        Output fra ``fremregn()`` — ``list[FremregningsSkridt]``.
+    titel:
+        Overskrift for hele figuren.
+    pensionsalder_t:
+        Tidspunktet (år fra tegningsdato) for pensionering, vises som
+        lodret stiplet linje. ``None`` for ingen markering.
+    figsize:
+        Figurstørrelse i tommer ``(bredde, højde)``.
+    gem_fil:
+        Filsti til at gemme figuren (f.eks. ``"depot.png"``).
+        ``None`` for ikke at gemme.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Den oprettede figur.
+    """
+    t_vals = [s.t for s in skridt]
+
+    prob_vals = []
+    ald_betinget, rate_betinget, liv_betinget = [], [], []
+    ald_vaegtet, rate_vaegtet, liv_vaegtet = [], [], []
+    udb_rate_vals, udb_liv_vals = [], []
+
+    for s in skridt:
+        il = s.i_live
+        if il is not None:
+            prob_vals.append(il.prob)
+            ald_betinget.append(il.aldersopsparing_dkk)
+            rate_betinget.append(il.ratepension_dkk)
+            liv_betinget.append(il.livrente_dkk)
+            ald_vaegtet.append(il.prob * il.aldersopsparing_dkk)
+            rate_vaegtet.append(il.prob * il.ratepension_dkk)
+            liv_vaegtet.append(il.prob * il.livrente_dkk)
+        else:
+            prob_vals.append(0.0)
+            ald_betinget.append(0.0)
+            rate_betinget.append(0.0)
+            liv_betinget.append(0.0)
+            ald_vaegtet.append(0.0)
+            rate_vaegtet.append(0.0)
+            liv_vaegtet.append(0.0)
+
+        cf = s.cashflows_i_live
+        udb_rate_vals.append(max(cf.b_ratepension, 0.0))
+        udb_liv_vals.append(max(cf.b_livrente, 0.0))
+
+    return _plot_fra_arrays(
+        t_vals=t_vals,
+        prob_vals=prob_vals,
+        ald_betinget=ald_betinget,
+        rate_betinget=rate_betinget,
+        liv_betinget=liv_betinget,
+        ald_vaegtet=ald_vaegtet,
+        rate_vaegtet=rate_vaegtet,
+        liv_vaegtet=liv_vaegtet,
+        udb_rate_vals=udb_rate_vals,
+        udb_liv_vals=udb_liv_vals,
+        titel=titel,
+        pensionsalder_t=pensionsalder_t,
+        figsize=figsize,
+        gem_fil=gem_fil,
+    )
+
+
+def plot_fra_dataframe(
+    df: "pd.DataFrame",
+    titel: str = "Depotudvikling — sandsynlighedsvægtede depoter",
+    pensionsalder_t: float | None = None,
+    figsize: tuple[float, float] = (11, 13),
+    gem_fil: str | None = None,
+) -> "matplotlib.figure.Figure":
+    """
+    Plot sandsynlighedsvægtede tilstandsvise depoter, ydelser og p(I_LIVE) over tid.
+
+    Identisk layout som ``plot_fremregning``, men læser fra en pandas DataFrame —
+    f.eks. indlæst fra en CSV genereret af ``eksporter_cashflows_csv()``.
+
+    Forventede kolonner i ``df`` (alle produceret af ``til_dataframe()``):
+        ``t``, ``p_i_live``,
+        ``betinget_aldersopsparing_dkk``, ``betinget_ratepension_dkk``, ``betinget_livrente_dkk``,
+        ``forventet_aldersopsparing_dkk``, ``forventet_ratepension_dkk``, ``forventet_livrente_dkk``,
+        ``b_ratepension``, ``b_livrente``
+
+    Parameters
+    ----------
+    df:
+        DataFrame med fremregningsdata — typisk ``pd.read_csv("fremregning.csv")``.
+    titel:
+        Overskrift for hele figuren.
+    pensionsalder_t:
+        Tidspunktet (år fra tegningsdato) for pensionering, vises som
+        lodret stiplet linje. ``None`` for ingen markering.
+    figsize:
+        Figurstørrelse i tommer ``(bredde, højde)``.
+    gem_fil:
+        Filsti til at gemme figuren (f.eks. ``"depot.png"``).
+        ``None`` for ikke at gemme.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Den oprettede figur.
+    """
+    return _plot_fra_arrays(
+        t_vals=df["t"].tolist(),
+        prob_vals=df["p_i_live"].tolist(),
+        ald_betinget=df["betinget_aldersopsparing_dkk"].tolist(),
+        rate_betinget=df["betinget_ratepension_dkk"].tolist(),
+        liv_betinget=df["betinget_livrente_dkk"].tolist(),
+        ald_vaegtet=df["forventet_aldersopsparing_dkk"].tolist(),
+        rate_vaegtet=df["forventet_ratepension_dkk"].tolist(),
+        liv_vaegtet=df["forventet_livrente_dkk"].tolist(),
+        udb_rate_vals=df["b_ratepension"].clip(lower=0).tolist(),
+        udb_liv_vals=df["b_livrente"].clip(lower=0).tolist(),
+        titel=titel,
+        pensionsalder_t=pensionsalder_t,
+        figsize=figsize,
+        gem_fil=gem_fil,
+    )

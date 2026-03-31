@@ -2,8 +2,8 @@
 Eksempel: To-faseprojektering — opsparingsfase + udbetalingsfase.
 
 Police med to produkter:
-  - Ratepension:  800 enh. × 100 DKK =  80.000 DKK ved tegning
-  - Livrente:     500 enh. × 100 DKK =  50.000 DKK ved tegning
+  - Ratepension:   80.000 DKK ved tegning
+  - Livrente:      50.000 DKK ved tegning
   - Aldersopsparing: 0 (ikke aktiv)
 
 Opsparingsfase: alder 40 → 67 (≈ 27 år), bidrag 15 % af 600.000 DKK/år.
@@ -18,6 +18,7 @@ import matplotlib
 matplotlib.use("Agg")  # Ikke-interaktiv backend (egnet til CI/scripts)
 
 import matplotlib.pyplot as plt
+import pandas as pd
 from datetime import date
 
 from verd import (
@@ -25,13 +26,14 @@ from verd import (
     GompertzMakeham,
     Policy,
     PolicyState,
+    eksporter_cashflows_csv,
     fremregn,
     initial_distribution,
+    plot_fra_dataframe,
     simpel_opsparings_cashflow,
     standard_omkostning,
     standard_toetilstands_model,
 )
-from verd.plot import plot_fremregning
 from verd.udbetaling import udbetaling_cashflow_funktion
 
 # ---------------------------------------------------------------------------
@@ -43,7 +45,7 @@ marked = DeterministicMarket(r=0.05, enhedspris_0=100.0)
 # ---------------------------------------------------------------------------
 # Police — kun ratepension + livrente, ingen aldersopsparing
 # ---------------------------------------------------------------------------
-police = Policy(
+police = Policy.fra_dkk(
     foedselsdato=date(1980, 1, 15),
     tegningsdato=date(2020, 6, 1),
     pensionsalder=67,
@@ -53,9 +55,10 @@ police = Policy(
     loen=600_000.0,
     indbetalingsprocent=0.15,        # 90.000 DKK/år
     aldersopsparing=0.0,             # ikke aktiv
-    ratepensionsopsparing=800.0,     # 80.000 DKK
+    ratepensionsopsparing=80_000.0,  # DKK
     ratepensionsvarighed=10,
-    livrentedepot=500.0,             # 50.000 DKK
+    livrentedepot=50_000.0,          # DKK
+    enhedspris=marked.enhedspris(0.0),
     tilstand=PolicyState.I_LIVE,
 )
 
@@ -163,15 +166,20 @@ if il_op:
 print("=" * 65)
 
 # ---------------------------------------------------------------------------
-# Plot
+# Eksportér til CSV og dan figuren fra CSV-filen
 # ---------------------------------------------------------------------------
-fig = plot_fremregning(
-    skridt=skridt_alle,
+eksporter_cashflows_csv(skridt_alle, "cashflows.csv")
+print()
+print("CSV gemt: cashflows.csv")
+
+df = pd.read_csv("cashflows.csv")
+
+fig = plot_fra_dataframe(
+    df=df,
     titel="Depotudvikling og ydelser — ratepension + livrente (to-faseprojektering)",
     pensionsalder_t=t_pension,
     gem_fil="depot_udvikling.png",
 )
 
-print()
 print("Plot gemt: depot_udvikling.png")
 plt.close(fig)

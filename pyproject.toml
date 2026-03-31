@@ -3,7 +3,13 @@ name = "verd"
 version = "0.1.0"
 description = "Aktuarbibliotek til sandsynlighedsvægtet fremregning af enkeltpolice reserver og cashflows"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.24", "matplotlib>=3.7"]
+dependencies = ["numpy>=1.24", "matplotlib>=3.7", "pandas>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["setuptools>=42"]

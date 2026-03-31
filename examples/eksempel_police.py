@@ -2,7 +2,7 @@
 Eksempel: Opret og print en unit-link police (Phase 1 done-kriterium).
 
 Demonstrerer:
-  - Oprettelse af en Policy med depotværdier i enheder
+  - Oprettelse af en Policy med depotværdier i DKK via Policy.fra_dkk()
   - GompertzMakeham dødelighedsmodel
   - DeterministicMarket med voksende enhedspris
   - Konvertering DKK ↔ enheder
@@ -37,21 +37,22 @@ marked = DeterministicMarket(r=math.log(1.05), enhedspris_0=100.0)
 
 # ---------------------------------------------------------------------------
 # Police — unit-link aldersopsparing + ratepension + livrente
-# Depotværdier er angivet i enheder (units), ikke DKK
+# Depotværdier angives i DKK; konverteres automatisk til enheder internt
 # ---------------------------------------------------------------------------
-police = Policy(
+police = Policy.fra_dkk(
     foedselsdato=date(1980, 1, 15),
     tegningsdato=date(2020, 6, 1),
     pensionsalder=67,
     er_under_udbetaling=False,
     gruppe_id="DK_MAND_2023",
     omkostningssats_id="STANDARD",
-    loen=600_000.0,          # 600.000 DKK/år
-    indbetalingsprocent=0.15,  # 15 % af løn
-    aldersopsparing=1_200.0,   # 1.200 enheder × 100 DKK = 120.000 DKK
-    ratepensionsopsparing=800.0,  # 800 enheder × 100 DKK = 80.000 DKK
+    loen=600_000.0,              # 600.000 DKK/år
+    indbetalingsprocent=0.15,    # 15 % af løn
+    aldersopsparing=120_000.0,   # DKK
+    ratepensionsopsparing=80_000.0,  # DKK
     ratepensionsvarighed=10,
-    livrentedepot=500.0,       # 500 enheder × 100 DKK = 50.000 DKK
+    livrentedepot=50_000.0,      # DKK
+    enhedspris=marked.enhedspris(0.0),
     tilstand=PolicyState.I_LIVE,
 )
 
@@ -59,7 +60,7 @@ police = Policy(
 # Print police
 # ---------------------------------------------------------------------------
 print("=" * 60)
-print("EKSEMPEL POLICE (UNIT-LINK)")
+print("EKSEMPEL POLICE (UNIT-LINK, DEPOTER DEFINERET I DKK)")
 print("=" * 60)
 print(police)
 

@@ -21,7 +21,8 @@ from verd.overgang import (
     Tilstandsmodel,
 )
 from verd.omkostning import OmkostningsFunktion, nul_omkostning, standard_omkostning
-from verd.plot import plot_fremregning
+from verd.plot import plot_fremregning, plot_fra_dataframe
+from verd.eksportering import til_dataframe, eksporter_cashflows_csv
 from verd.udbetaling import (
     livrente_annuitet,
     sikker_annuitet,
@@ -66,6 +67,10 @@ __all__ = [
     "standard_omkostning",
     # Visualisering
     "plot_fremregning",
+    "plot_fra_dataframe",
+    # Eksportering
+    "til_dataframe",
+    "eksporter_cashflows_csv",
     # Udbetalingsfase
     "livrente_annuitet",
     "sikker_annuitet",
