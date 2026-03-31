@@ -4,12 +4,13 @@ Thiele — koblede differentialligninger for betingede forventede depoter.
 De tre depoters udvikling er givet af et system af koblede Thiele-ligninger.
 For depot d ∈ {aldersopsparing, ratepension, livrente} i tilstand i:
 
-    dV_d/dt = r·V_d(t) + π_d(t) − b_d(t) − c_d(t)  −  Σ_j µ_ij(x+t)·R_ij_d(t)
+    dV_d/dt = r·V_d(t) − b_d(t) − c_d(t)  −  Σ_j µ_ij(x+t)·R_ij_d(t)
 
 hvor:
     r          = afkastrate (kraftens af rente)
-    π_d(t)     = indbetalingssats til depot d (DKK/år)
-    b_d(t)     = udbetalingssats fra depot d (DKK/år)
+    b_d(t)     = netto betalingssats for depot d (DKK/år);
+                 b_d < 0: indbetaling (præmie fra policyholder, depot vokser)
+                 b_d > 0: udbetaling (ydelse til policyholder, depot falder)
     c_d(t)     = omkostningssats for depot d (DKK/år)
     µ_ij(x+t)  = overgangsintensitet fra tilstand i til tilstand j
     R_ij_d(t)  = risikosum for depot d ved overgang i → j (DKK):
@@ -21,7 +22,7 @@ Det finansielle led r·V_d(t) håndteres automatisk via enhedsprisens vækst
 P(t) = P₀·exp(r·t). Enhedstallet n_d = V_d/P ændres kun af nettopenge-
 strømmene. Euler-diskretiseringen for depot d (Euler fremadskridende):
 
-    Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
+    Δn_d = dt · [−b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
 
 Overlevelsessandsynligheder opdateres via Kolmogorov fremadligning i
 fremregningslaget (ikke her).
@@ -87,49 +88,44 @@ class CashflowSats:
 
     Alle satser er årsrater — multiplicer med ``dt`` for beløb i det aktuelle skridt.
 
+    Fortegnkonvention (standard aktuarnotation):
+        b_d < 0  →  indbetaling: præmie fra policyholder; depot vokser
+        b_d > 0  →  udbetaling:  ydelse til policyholder; depot falder
+
     Attributes
     ----------
-    indbetaling_aldersopsparing:
-        Indbetalingssats til aldersopsparingsdepot (DKK/år).
-    indbetaling_ratepension:
-        Indbetalingssats til ratepensionsdepot (DKK/år).
-    indbetaling_livrente:
-        Indbetalingssats til livrentedepot (DKK/år).
-    udbetaling_aldersopsparing:
-        Udbetalingssats fra aldersopsparingsdepot (DKK/år).
-    udbetaling_ratepension:
-        Udbetalingssats fra ratepensionsdepot (DKK/år).
-    udbetaling_livrente:
-        Udbetalingssats fra livrentedepot (DKK/år).
+    b_aldersopsparing:
+        Netto betalingssats for aldersopsparingsdepot (DKK/år).
+    b_ratepension:
+        Netto betalingssats for ratepensionsdepot (DKK/år).
+    b_livrente:
+        Netto betalingssats for livrentedepot (DKK/år).
     omkostning:
         Samlet omkostningssats (DKK/år). Fordeles proportionalt på depoterne
         i ``thiele_step`` baseret på depoternes relative størrelse.
     """
 
-    indbetaling_aldersopsparing: float = 0.0
-    indbetaling_ratepension: float = 0.0
-    indbetaling_livrente: float = 0.0
-    udbetaling_aldersopsparing: float = 0.0
-    udbetaling_ratepension: float = 0.0
-    udbetaling_livrente: float = 0.0
+    b_aldersopsparing: float = 0.0
+    b_ratepension: float = 0.0
+    b_livrente: float = 0.0
     omkostning: float = 0.0
 
     @property
     def total_indbetaling(self) -> float:
-        """Samlet indbetalingssats på tværs af alle depoter (DKK/år)."""
+        """Samlet indbetalingssats på tværs af alle depoter (DKK/år, positiv)."""
         return (
-            self.indbetaling_aldersopsparing
-            + self.indbetaling_ratepension
-            + self.indbetaling_livrente
+            -min(self.b_aldersopsparing, 0.0)
+            - min(self.b_ratepension, 0.0)
+            - min(self.b_livrente, 0.0)
         )
 
     @property
     def total_udbetaling(self) -> float:
-        """Samlet udbetalingssats på tværs af alle depoter (DKK/år)."""
+        """Samlet udbetalingssats på tværs af alle depoter (DKK/år, positiv)."""
         return (
-            self.udbetaling_aldersopsparing
-            + self.udbetaling_ratepension
-            + self.udbetaling_livrente
+            max(self.b_aldersopsparing, 0.0)
+            + max(self.b_ratepension, 0.0)
+            + max(self.b_livrente, 0.0)
         )
 
 
@@ -151,18 +147,19 @@ def thiele_step(
 
     Systemet af koblede differentialligninger for depot d:
 
-        dV_d/dt = r·V_d + π_d − b_d − c_d  −  Σ_j µ_ij·R_ij_d
+        dV_d/dt = r·V_d − b_d − c_d  −  Σ_j µ_ij·R_ij_d
 
+    b_d er signeret: b_d < 0 → indbetaling (depot vokser), b_d > 0 → udbetaling (depot falder).
     I unit-link-form håndteres r·V_d implicit via P(t) → P(t+dt).
     Euler-diskretisering for enhedstallet n_d = V_d / P(t):
 
-        Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
+        Δn_d = dt · [−b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
 
     Rækkefølge af operationer inden for tidssteget:
-        1. Indbetalinger (π_d·dt) tilskrives som nye enheder ved P(t)
+        1. Betalinger (−b_d·dt) tilskrives som enheder ved P(t)
         2. Finansielt afkast: implicit via P(t) → P(t+dt) = P(t)·exp(r·dt)
         3. Biometriske kopplingsled (−Σ_j µ_ij·R_ij_d·dt) fratrækkes ved P(t)
-        4. Udbetalinger (b_d·dt) og omkostninger (c_d·dt) fratrækkes ved P(t)
+        4. Omkostninger (c_d·dt) fratrækkes ved P(t)
         (Tilstandssandsynligheder opdateres eksternt via Kolmogorov)
 
     Parameters
@@ -177,7 +174,7 @@ def thiele_step(
     market:
         Finansielt marked — leverer enhedspris P(t).
     cashflows:
-        Cashflow-satser π_d, b_d, c_d i DKK/år for dette tidsstep.
+        Cashflow-satser b_d, c_d i DKK/år for dette tidsstep.
     overgangs_led:
         Liste af ``(µ_ij, R_ij)``-par, ét per udgående overgang fra
         ``policy.tilstand``. µ_ij er intensitetsværdien (float, år⁻¹)
@@ -217,26 +214,24 @@ def thiele_step(
     sum_bio_liv = sum(mu_ij * r.livrente for mu_ij, r in overgangs_led)
 
     # Koblede Thiele-ligninger — Euler fremadskridende:
-    #   Δn_d = dt · [π_d − b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
+    #   Δn_d = dt · [−b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
     #
+    # b_d er signeret: b_d < 0 → indbetaling, b_d > 0 → udbetaling.
     # Det biometriske led er altid eksplicit til stede, selv når R_ij_d = 0.
     ald_ny = policy.aldersopsparing + dt * (
-        cashflows.indbetaling_aldersopsparing
-        - cashflows.udbetaling_aldersopsparing
+        -cashflows.b_aldersopsparing
         - omk_ald
         - sum_bio_ald
     ) / P_t
 
     rate_ny = policy.ratepensionsopsparing + dt * (
-        cashflows.indbetaling_ratepension
-        - cashflows.udbetaling_ratepension
+        -cashflows.b_ratepension
         - omk_rate
         - sum_bio_rate
     ) / P_t
 
     liv_ny = policy.livrentedepot + dt * (
-        cashflows.indbetaling_livrente
-        - cashflows.udbetaling_livrente
+        -cashflows.b_livrente
         - omk_liv
         - sum_bio_liv
     ) / P_t

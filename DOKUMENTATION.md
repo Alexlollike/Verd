@@ -231,7 +231,204 @@ omk = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
 
 ---
 
-## 10. Hvad er ikke med i v1.0
+## 10. Arkitektur og dataflow
+
+### Diagram 1 — Overordnet modulstruktur
+
+Viser hvilke inputparametre der opretter hvilke modeller, og hvordan disse flyder ind i fremregningsalgoritmen.
+
+```mermaid
+flowchart TD
+    subgraph IND ["Brugerinput"]
+        direction TB
+        UI1["**GompertzMakeham**
+        alpha, beta, sigma"]
+        UI2["**DeterministicMarket**
+        r, enhedspris_0"]
+        UI3["**Policy**
+        foedselsdato, tegningsdato
+        pensionsalder, loen
+        indbetalingsprocent
+        aldersopsparing
+        ratepensionsopsparing, ratepensionsvarighed
+        livrentedepot
+        er_under_udbetaling"]
+        UI4["**Omkostningsparametre**
+        aum_rate, styk_aar"]
+    end
+
+    subgraph MOD ["Modeller (verd/)"]
+        direction TB
+        BIO["**BiometricModel**
+        biometric_model.py
+        ─────────────────
+        µ(x) = α + β·exp(σx)"]
+        MKT["**FinancialMarket**
+        deterministic_market.py
+        ─────────────────
+        P(t) = P₀·exp(r·t)"]
+        TS["**Tilstandsmodel**
+        overgang.py
+        ─────────────────
+        I_LIVE ──µ(x)──► DOED"]
+        CF["**CashflowFunktion**
+        fremregning.py / udbetaling.py
+        ─────────────────
+        (Policy, t) → CashflowSats
+        π_d, b_d per depot"]
+        OMK["**OmkostningsFunktion**
+        omkostning.py
+        ─────────────────
+        (Policy, t) → DKK/år
+        aum_rate·V(t) + styk_aar"]
+    end
+
+    subgraph FREM ["Fremregning (fremregning.py)"]
+        direction TB
+        DIST["**PolicyDistribution**
+        [(Policy, p=1.0)]"]
+        ENGINE["**fremregn()**
+        N skridt × dt = 1/12 år
+        ──────────────────────
+        Thiele-skridt (betingede depoter)
+        + Kolmogorov-skridt (sandsynligheder)"]
+    end
+
+    subgraph OUT ["Output"]
+        direction TB
+        SKRIDT["**list[FremregningsSkridt]**
+        per tidsstep t:
+        ─────────────────
+        • depoter i DKK per tilstand
+        • p(I_LIVE), p(DOED)
+        • indbetaling/udbetaling/omkostning"]
+        PLOT["**plot_fremregning()**
+        plot.py
+        4-panel graf"]
+        FASE3["**(Phase 3)**
+        Reserveberegning
+        Thiele baglæns"]
+    end
+
+    UI1 --> BIO
+    UI2 --> MKT
+    UI3 --> DIST
+    UI3 --> CF
+    UI4 --> OMK
+    MKT --> OMK
+    BIO --> TS
+    BIO --> CF
+    MKT --> CF
+    DIST --> ENGINE
+    TS --> ENGINE
+    CF --> ENGINE
+    OMK --> ENGINE
+    MKT --> ENGINE
+    ENGINE --> SKRIDT
+    SKRIDT --> PLOT
+    SKRIDT --> FASE3
+```
+
+---
+
+### Diagram 2 — Algoritme per tidsstep
+
+Viser præcis hvad der sker inde i `fremregn()` for ét tidsstep $[t,\, t+\Delta t]$, og hvilke inputfelter der bruges hvornår.
+
+```mermaid
+flowchart TD
+    START(["Start tidsstep t"])
+
+    subgraph MU ["Biometri"]
+        MU1["Beregn µ(x+t)
+        ── bruges fra ──
+        GompertzMakeham(alpha, beta, sigma)
+        alder = alder_ved_tegning() + t
+        ← foedselsdato, tegningsdato"]
+    end
+
+    subgraph THIELE ["Thiele-skridt  (betinget på I_LIVE)"]
+        direction TB
+        CF1["cashflow_funktion(policy, t)
+        → CashflowSats
+        ─────────────────────────────
+        Opsparingsfase:
+          π = loen × indbetalingsprocent
+          fordelt på depoter ∝ enhedsandele
+        Udbetalingsfase:
+          b_rate = V_rate / ä_n(rest_år)
+          b_liv  = V_liv  / ä_x(alder)
+          ← biometri + marked til annuitet"]
+
+        OMK1["omkostnings_funktion(policy, t)
+        → DKK/år
+        ─────────────────────────────
+        aum_rate × (total_enheder × P(t))
+        + styk_aar
+        ← enhedspris P(t) fra FinancialMarket"]
+
+        RS1["risikosum_func(policy, t)
+        → RisikoSummer
+        ─────────────────────────────
+        R_d = S_d + V_d(DOED) − V_d(I_LIVE)
+        ≡ 0  (rent unit-link i v1.0)"]
+
+        TH["thiele_step()
+        ─────────────────────────────
+        Δn_d = Δt · [π_d − b_d − c_d − µ·R_d] / P(t)
+        ← enhedspris P(t) fra FinancialMarket
+        ← aldersopsparing, ratepensionsopsparing,
+          livrentedepot  (nuværende enheder)"]
+    end
+
+    subgraph KOLM ["Kolmogorov-skridt  (alle tilstande)"]
+        KO["Opdater sandsynligheder
+        ─────────────────────────────
+        p₀(t+Δt) = p₀(t) · (1 − µ·Δt)
+        p₁(t+Δt) = 1 − p₀(t+Δt)
+        ← µ(x+t) fra biometristeget"]
+    end
+
+    subgraph REC ["Optag resultat"]
+        REC1["FremregningsSkridt
+        ─────────────────────────────
+        • t, alder
+        • depoter i DKK = enheder × P(t+Δt)
+        • p(I_LIVE), p(DOED)
+        • indbetaling/udbetaling/omkostning"]
+    end
+
+    SLUT(["Næste tidsstep t + Δt"])
+
+    START --> MU1
+    MU1 --> CF1
+    MU1 --> RS1
+    CF1 --> OMK1
+    OMK1 --> TH
+    RS1 --> TH
+    TH --> KO
+    KO --> REC1
+    REC1 --> SLUT
+```
+
+---
+
+### Tabel — Policy-felternes rolle i systemet
+
+| Policy-felt | Bruges i | Formål |
+|---|---|---|
+| `foedselsdato`, `tegningsdato` | `alder_ved_tegning()` → `fremregn()` | Beregner alder $x+t$ ved hvert tidsstep |
+| `loen`, `indbetalingsprocent` | `simpel_opsparings_cashflow()` | Beregner indbetalingssats $\pi = \ell \times p$ |
+| `aldersopsparing`, `ratepensionsopsparing`, `livrentedepot` | `thiele_step()`, `omkostning`, `udbetaling` | Nuværende depotstørrelser (enheder) — opdateres hvert step |
+| `ratepensionsvarighed` | `udbetaling_cashflow_funktion()` | Beregner resterende udbetalingsperiode for $\ddot{a}_n$ |
+| `er_under_udbetaling` | Alle cashflow-funktioner | Brancher mellem opsparings- og udbetalingslogik |
+| `pensionsalder` | Kaldende kode | Bestemmer antal skridt i opsparingsfasen (`t_pension`) — bruges **ikke** direkte af `fremregn()` |
+| `tilstand` | `fremregn()`, `thiele_step()` | Identificerer hvilken Markov-tilstand policyen tilhører |
+| `gruppe_id`, `omkostningssats_id` | *(opslagsnøgler — Phase 2+)* | Reserveret til fremtidig tabelopslag |
+
+---
+
+## 11. Hvad er ikke med i v1.0
 
 - Stokastisk finansielt marked (rentekurve, scenariebaseret)
 - Invalid-tilstand

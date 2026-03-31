@@ -150,65 +150,30 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 
 ---
 
-## Fase 3 — Reserveberegning
-
-### Thiele — baglæns rekursion
-- [ ] Opret `verd/reserve.py`
-- [ ] Implementer `thiele_trin(V_naeste, cashflow, enhedspris_t, enhedspris_naeste)` — ét baglæns trin:
-  - `V(t) = [V(t+dt) - indbetaling_enheder + udbetaling_enheder + risikopraemie_enheder] × (enhedspris_naeste / enhedspris_t)⁻¹`
-  - (Diskontering sker via forholdet mellem enhedspriser)
-- [ ] Implementer `beregn_reserve(cashflows, marked)` → `list[float]`:
-  - Baglæns iteration over cashflow-listen
-  - Terminalvilkår: `V(T) = depot_enheder_efter × enhedspris(T)` (depotværdi ved ophør)
-- [ ] Verificer terminalvilkår: reserve ved ophør = resterende depotværdi i DKK
-
-### Diskontering
-- [ ] Implementer `diskonteringsfaktor(marked, t, dt)` = `enhedspris(t) / enhedspris(t + dt)`
-- [ ] Verificer: `V(0)` ≈ `depotvaerdi_dkk(enhedspris(0))` for police uden risikopræmie og ingen cashflows (nulpolicen)
-
-### Output
-- [ ] Implementer `reserve_tabel(cashflows, reserver, marked)` → `pandas.DataFrame` (t, alder, p_alive, reserve_dkk)
-- [ ] Implementer `print_reserve_tabel(...)` — printer tidsserie af reserve
-- [ ] Opdater `examples/eksempel_police.py` med reservetal (done-kriterium fase 3)
-
-### Tests — Fase 3
-- [ ] `tests/test_reserve.py`
-  - [ ] Terminalreserve = depotværdi ved terminalvilkår (tolerance 1e-6)
-  - [ ] `V(0) ≥ 0` — reserve er ikke-negativ
-  - [ ] Reserve er aftagende over tid for nulindbetalingspolicen (ren opsparing)
-  - [ ] **Nulcashflow-test**: police med `indbetalingsprocent=0`, ingen ydelser, ingen risikopræmie → `V(0)` = `depotvaerdi_dkk(enhedspris(0))` (tolerance 1e-4)
-  - [ ] Verificer `V(0)` for simpel 3-måneders police mod håndberegnet facit
-
----
-
-## Fase 4 — Validering & Output
+## Fase 3 — Validering & Output
 
 ### Sanity checks
 - [ ] Opret `verd/validering.py`
 - [ ] Implementer `check_sandsynligheder(fordeling)` — summer til 1.0 (tolerance 1e-9)
 - [ ] Implementer `check_p_alive_monoton(cashflows)` — `p_alive` er aftagende
-- [ ] Implementer `check_reserve_ikke_negativ(reserver)` — alle reserver ≥ 0
-- [ ] Implementer `check_reserve_mod_depot(V0, police, marked)` — V(0) ≈ depotværdi (tolerance-baseret)
-- [ ] Implementer `kør_alle_checks(police, cashflows, reserver, marked)` — kalder alle checks, kaster `ValueError` ved fejl
+- [ ] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
 
 ### CSV-eksport
 - [ ] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
-- [ ] Implementer `eksporter_reserve_csv(cashflows, reserver, marked, filsti)` — skriver reserve DataFrame til CSV
 
 ### Formateret output
-- [ ] Implementer `print_policeoversigt(police, cashflows, reserver, marked)` — samlet rapport til stdout:
+- [ ] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
   - Policestamdata
   - Nøgletal (depotværdi, V(0), sum af indbetalinger, sum af ydelser)
-  - Første og sidste 5 rækker af cashflow- og reservetabel
+  - Første og sidste 5 rækker af cashflowtabel
 - [ ] Opdater `examples/eksempel_police.py` til komplet end-to-end eksempel (done-kriterium fase 4)
 
 ### Tests — Fase 4
 - [ ] `tests/test_validering.py`
   - [ ] `check_sandsynligheder` kaster `ValueError` hvis sum ≠ 1.0
-  - [ ] `check_reserve_ikke_negativ` kaster `ValueError` ved negativ reserve
   - [ ] `check_p_alive_monoton` kaster `ValueError` ved stigende p_alive
   - [ ] CSV-eksport producerer velformet fil med korrekte kolonnenavne
-  - [ ] End-to-end: `standard_police` → cashflows → reserver → alle checks → ingen undtagelser
+  - [ ] End-to-end: `standard_police` → cashflows → alle checks → ingen undtagelser
 
 ---
 
@@ -220,7 +185,6 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
   - Starttilstand: 1.000 enh. × 100 DKK/enh. = 100.000 DKK
   - Parametre: r=0.05, alpha=0.0005, beta=0.00004, sigma=0.09, alder=40, dt=1/12
   - Beregn eksplicit: måned 1 indbetaling, risikopræmie, ny enhedspris, ny depotværdi
-  - Beregn reserve ved t=0 baglæns fra terminalvilkår
   - Alle mellemresultater til 8 decimaler
 
 - [ ] `tests/test_facit.py` — verificer alle nøgletal fra `facit_eksempel.md`:
@@ -235,7 +199,7 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
   - [ ] Første måneds `risikopraemie_enheder` = håndberegnet facit (tolerance 1e-8)
 
 ### Edge cases
-- [ ] Test: police med alle depoter = 0.0 → `depotvaerdi_dkk` = 0.0, reserve = 0.0
+- [ ] Test: police med alle depoter = 0.0 → `depotvaerdi_dkk` = 0.0
 - [ ] Test: police med `er_under_udbetaling = True` fra starten → ingen indbetalinger
 - [ ] Test: `ratepensionsvarighed = 0` → ingen ratepensionsydelser
 - [ ] Test: meget høj dødelighedsintensitet (alpha=1.0) → `p_alive` falder hurtigt, fremregning stopper tidligt

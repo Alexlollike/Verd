@@ -179,8 +179,8 @@ def udbetaling_cashflow_funktion(
             b_livrente = 0.0
 
         return CashflowSats(
-            udbetaling_ratepension=b_rate,
-            udbetaling_livrente=b_livrente,
+            b_ratepension=b_rate,
+            b_livrente=b_livrente,
         )
 
     return _cashflow

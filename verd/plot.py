@@ -120,8 +120,8 @@ def plot_fremregning(
             liv_vaegtet.append(0.0)
 
         cf = s.cashflows_i_live
-        udb_rate_vals.append(cf.udbetaling_ratepension)
-        udb_liv_vals.append(cf.udbetaling_livrente)
+        udb_rate_vals.append(cf.b_ratepension)
+        udb_liv_vals.append(cf.b_livrente)
 
     # Afgør hvilke produkter der er aktive i depot-panelerne (startværdi > 0)
     aktive_depot = {

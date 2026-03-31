@@ -158,8 +158,8 @@ if il_op:
     # Vis første ydelse
     cf_start = skridt_udb[1].cashflows_i_live if len(skridt_udb) > 1 else None
     if cf_start:
-        print(f"    Ratepensionsydelse: {cf_start.udbetaling_ratepension:>10,.0f} DKK/år")
-        print(f"    Livrenteydelse    : {cf_start.udbetaling_livrente:>10,.0f} DKK/år")
+        print(f"    Ratepensionsydelse: {cf_start.b_ratepension:>10,.0f} DKK/år")
+        print(f"    Livrenteydelse    : {cf_start.b_livrente:>10,.0f} DKK/år")
 print("=" * 65)
 
 # ---------------------------------------------------------------------------

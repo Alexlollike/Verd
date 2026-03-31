@@ -173,9 +173,9 @@ def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
         f_ald = f_rate = f_liv = 1.0 / 3.0
 
     return CashflowSats(
-        indbetaling_aldersopsparing=indbetaling_aar * f_ald,
-        indbetaling_ratepension=indbetaling_aar * f_rate,
-        indbetaling_livrente=indbetaling_aar * f_liv,
+        b_aldersopsparing=-indbetaling_aar * f_ald,
+        b_ratepension=-indbetaling_aar * f_rate,
+        b_livrente=-indbetaling_aar * f_liv,
     )
 
 
