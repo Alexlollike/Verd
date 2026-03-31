@@ -65,6 +65,7 @@ def _plot_fra_arrays(
     pensionsalder_t: float | None,
     figsize: tuple[float, float],
     gem_fil: str | None,
+    ald_lumpsum_dkk: float | None = None,
 ) -> "matplotlib.figure.Figure":
     """
     Intern hjælpefunktion — tegner de fire paneler ud fra forudberegnede arrays.
@@ -145,6 +146,27 @@ def _plot_fra_arrays(
     else:
         ax_ydelser.set_ylabel("DKK/år", fontsize=10)
     ax_ydelser.set_title("Ydelser per produkt | b_d(t)", fontsize=10, loc="left")
+
+    # Annotation: engangsudbetaling fra aldersopsparing
+    if ald_lumpsum_dkk is not None and ald_lumpsum_dkk > 0.0 and pensionsalder_t is not None:
+        ax_ydelser.axvline(
+            pensionsalder_t,
+            color=_FARVER["aldersopsparing"],
+            linestyle="-",
+            linewidth=2.5,
+            alpha=0.8,
+            label=f"Aldersopsparing (engangsudbetaling)",
+        )
+        y_top = ax_ydelser.get_ylim()[1]
+        ax_ydelser.annotate(
+            f"Engangsudbetaling\n{ald_lumpsum_dkk:,.0f} DKK",
+            xy=(pensionsalder_t, y_top * 0.55),
+            xytext=(pensionsalder_t + 2.0, y_top * 0.65),
+            fontsize=8,
+            color=_FARVER["aldersopsparing"],
+            arrowprops=dict(arrowstyle="->", color=_FARVER["aldersopsparing"], lw=1.2),
+        )
+        ax_ydelser.legend(loc="upper left", fontsize=9, framealpha=0.7)
 
     # Panel 4 — p(I_LIVE)
     ax_prob.plot(t_vals, prob_vals, color=_FARVER["sandsynlighed"], linewidth=1.8)
@@ -284,6 +306,7 @@ def plot_fra_dataframe(
     pensionsalder_t: float | None = None,
     figsize: tuple[float, float] = (11, 13),
     gem_fil: str | None = None,
+    ald_lumpsum_dkk: float | None = None,
 ) -> "matplotlib.figure.Figure":
     """
     Plot sandsynlighedsvægtede tilstandsvise depoter, ydelser og p(I_LIVE) over tid.
@@ -332,4 +355,5 @@ def plot_fra_dataframe(
         pensionsalder_t=pensionsalder_t,
         figsize=figsize,
         gem_fil=gem_fil,
+        ald_lumpsum_dkk=ald_lumpsum_dkk,
     )

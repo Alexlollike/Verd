@@ -128,14 +128,19 @@ def udbetaling_cashflow_funktion(
     """
     Fabriksfunktion: returnerer cashflow-funktion for udbetalingsfasen.
 
-    Den returnerede funktion beregner ydelser (DKK/år) for ratepension og
-    livrente baseret på aktuelt depot og annuitetfaktorer genberegnet hvert skridt:
+    Den returnerede funktion beregner ydelser (DKK/år) for alle tre depottyper
+    baseret på aktuelt depot og annuitetfaktorer genberegnet hvert skridt:
 
+        b_ald      = V_ald_dkk  / dt          (engangsudbetaling ved pensionering)
         b_rate     = V_rate_dkk / ä_n(remaining_years)
         b_livrente = V_liv_dkk  / ä_x(alder)
 
     Genberegning hvert skridt sikrer korrekt udtømning under hensyntagen til
     afkast og mortalitet.
+
+    Aldersopsparing udbetales altid som engangsudbetaling i første skridt af
+    udbetalingsfasen (``b_ald = V_ald / dt``). Dette tømmer depotet i ét skridt;
+    efterfølgende skridt har policy.aldersopsparing ≈ 0, så b_ald ≈ 0 automatisk.
 
     Parameters
     ----------
@@ -161,6 +166,9 @@ def udbetaling_cashflow_funktion(
         P_t = market.enhedspris(t)
         alder = policy.alder_ved_tegning() + t
 
+        # Aldersopsparing: engangsudbetaling — tøm depotet i ét skridt
+        b_ald = policy.aldersopsparing * P_t / dt if policy.aldersopsparing > 0.0 else 0.0
+
         # Ratepension: niveau-udbetaling over resterende ratepensionsperiode
         remaining_rate_years = policy.ratepensionsvarighed - (t - t_pension)
         if remaining_rate_years > dt and policy.ratepensionsopsparing > 0.0:
@@ -179,6 +187,7 @@ def udbetaling_cashflow_funktion(
             b_livrente = 0.0
 
         return CashflowSats(
+            b_aldersopsparing=b_ald,
             b_ratepension=b_rate,
             b_livrente=b_livrente,
         )

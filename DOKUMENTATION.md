@@ -1,6 +1,6 @@
 # Verd — Teknisk Dokumentation
 
-**Version:** Phase 2 (cashflow-fremregning)
+**Version:** Phase 2 (cashflow-fremregning) — komplet
 **Formål:** Sandsynlighedsvægtet fremregning af enkeltpolice reserver og cashflows for rene unit-link pensionsprodukter.
 
 ---
@@ -49,6 +49,25 @@ hvor $\mu(x+t)$ er **dødelighedsintensiteten** (se afsnit 3) og $x$ er alder ve
 
 Intuition: i hvert tidsstep "forlader" sandsynlighedsmassen $\mu \cdot p_0 \cdot \Delta t$ tilstanden I_LIVE og overføres til DOED.
 
+### Tilstandsmodel og overgange (`overgang.py`)
+
+Markov-grafen er repræsenteret som en generisk `Tilstandsmodel`, der indeholder en liste af `Overgang`-objekter. Hvert objekt beskriver én rettet overgang:
+
+```python
+Overgang(
+    fra        = PolicyState.I_LIVE,
+    til        = PolicyState.DOED,
+    intensitet = BiometriOvergangsIntensitet(biometric_model),
+    risikosum_func = nul_risikosum,   # standard for rent unit-link
+)
+```
+
+`OvergangsIntensitet` er en abstrakt klasse med to implementationer:
+- `BiometriOvergangsIntensitet` — wrapper om en `BiometricModel`; returnerer $\mu(x)$
+- `KonstantOvergangsIntensitet` — fast intensitet uafhængig af alder
+
+Fabriksfunktionen `standard_toetilstands_model(biometric)` returnerer den normale to-tilstands model med ét Overgang-objekt.
+
 ---
 
 ## 3. Dødelighedsmodel — Gompertz-Makeham
@@ -85,11 +104,13 @@ hvor $n(t)$ er antallet af enheder. Det finansielle afkast er *implicit* — det
 
 **Antagelse:** Markedet er deterministisk — ingen stokastisk afkastusikkerhed i v1.0.
 
+**Design:** `FinancialMarket` er fuldt uafhængig af `BiometricModel`; de kobles kun i fremregningslaget.
+
 ---
 
 ## 5. Thieles differentialligning
 
-Thieles ligning er den centrale ODE, der driver depotudviklingen. Den kan udledes som en **konsistenskrav** (no-arbitrage): depotets vækst pr. tidsenhed skal svare til afkast plus indbetalinger minus udbetalinger minus den forventede udgift til biometriske risici.
+Thieles ligning er den centrale ODE, der driver depotudviklingen. Den kan udledes som et **konsistenskrav** (no-arbitrage): depotets vækst pr. tidsenhed skal svare til afkast plus indbetalinger minus udbetalinger minus den forventede udgift til biometriske risici.
 
 For depot $d$ i tilstand I_LIVE:
 
@@ -107,7 +128,7 @@ Hvert led har en klar fortolkning:
 
 ### Risikosummen $R_d$
 
-Risikosummen er det nettobeløb, der skal afregnes ved død:
+Risikosummen er det nettobeløb, der skal afregnes ved overgang til DOED:
 
 $$R_d = S_d + V_d^{\text{DOED}} - V_d^{\text{I\_LIVE}}$$
 
@@ -158,7 +179,7 @@ For hvert tidsstep [t, t + Δt]:
      - Overlevelsessandsynlighed:     p₀(t+Δt)
 ```
 
-**Output** er en tidsserie med én række per måned, indeholdende alle depotværdier, sandsynligheder og cashflows.
+**Output** er en tidsserie (`list[FremregningsSkridt]`) med én post per måned, der indeholder alle depotværdier, sandsynligheder og cashflows. `FremregningsSkridt` aggregerer et `TilstandsSkridt` per Markov-tilstand med betingede og sandsynlighedsvægtede størrelser.
 
 ---
 
@@ -170,54 +191,189 @@ Når `er_under_udbetaling = True` stopper indbetalingerne og ydelserne beregnes:
 
 $$b_{\text{rate}}(t) = \frac{V_{\text{rate}}(t)}{\ddot{a}_n^{(12)}}$$
 
-hvor $\ddot{a}_n^{(12)} = \sum_{k=0}^{12n-1} \frac{1}{12} \cdot e^{-r \cdot k/12}$ er den diskonterede annuitetsfaktor.
+hvor $\ddot{a}_n^{(12)} = \sum_{k=0}^{12n-1} \frac{1}{12} \cdot e^{-r \cdot k/12}$ er den diskonterede annuitetsfaktor (sikker annuitet, ingen biometri).
 
 **Livrente** (livsvarig ydelse):
 
 $$b_{\text{liv}}(t) = \frac{V_{\text{liv}}(t)}{\ddot{a}_x^{(12)}}$$
 
-hvor $\ddot{a}_x^{(12)} = \sum_{k=0}^{\infty} \frac{1}{12} \cdot e^{-r \cdot k/12} \cdot {}_k p_x$ er den livsvarige annuitetsfaktor (beregnet numerisk med max-alder 120 år).
+hvor $\ddot{a}_x^{(12)} = \sum_{k=0}^{K} \frac{1}{12} \cdot e^{-r \cdot k/12} \cdot {}_k p_x$ er den livsvarige annuitetsfaktor (beregnet numerisk med max-alder 120 år).
+
+**Aldersopsparing** udbetales som et engangsudbetaling i det første udbetalingstep: $b_{\text{ald}} = V_{\text{ald}} / \Delta t$ (tømmer depotet i ét skridt).
+
+Annuitetsfaktorerne genberegnes ved hvert tidsstep, så ydelsen afspejler den aktuelle depotværdi og resterende løbetid.
 
 ---
 
-## 8. Centrale antagelser
+## 8. Præmieallokering — PraemieFlow
+
+`PraemieFlow` (`praemieflow.py`) styrer fordelingen af bruttopræmien på risikodækning og de tre opsparingsdepoter. Det er den centrale konfigurationsobjekt til en realistisk police.
+
+### Algoritme
+
+```
+Nettopræmie = Bruttopræmie − Risikopræmie
+
+Ønsket fordeling:
+  Ratepension     = Nettopræmie × ratepension_andel
+  Aldersopsparing = Nettopræmie × aldersopsparing_andel
+  Livrente        = Resterende (ingen loft)
+
+Anvend lofter (BeloebsgraenserOpslag):
+  Ratepension     ≤ ratepension_max
+  Aldersopsparing ≤ aldersopsparing_max
+  Overskydende beløb flyttes til livrente
+```
+
+`PraemieFlowResultat` returnerer de endelige beløb og garanterer at summen altid er lig bruttopræmien (invariant).
+
+### Risikodækning — RisikoBundle
+
+`RisikoBundle` (`risiko.py`) samler én eller flere `RisikoDaekning`-objekter:
+
+```python
+RisikoDaekning(navn="Dødsfald", aarlig_praemie_dkk=500.0)
+```
+
+Eksempel — standard bundtet med tre dækningstyper:
+
+```python
+STANDARD_RISIKO_BUNDLE = RisikoBundle([
+    RisikoDaekning("Dødsfald",       aarlig_praemie_dkk=500.0),
+    RisikoDaekning("TAE",            aarlig_praemie_dkk=700.0),  # Tab af erhvervsevne
+    RisikoDaekning("SUL",            aarlig_praemie_dkk=300.0),  # Svær ulykke/livstruende
+])  # Total: 1.500 DKK/år
+```
+
+Risikopræmien fratrækkes bruttopræmien, inden nettopræmien fordeles på depoterne.
+
+---
+
+## 9. Offentlige satser og beløbsgrænser
+
+`BeloebsgraenserOpslag` (`offentlige_satser.py`) indkapsler de skattemæssige indbetalingsgrænser for et givet indkomstår. Disse bruges af `PraemieFlow` til at sikre, at indbetalingerne til ratepension og aldersopsparing ikke overstiger de lovbestemte lofter.
+
+**Aldersopsparing:** Grænsen er højere for forsikringstagere **7 år eller mindre fra folkepensionsalder** ("nær pension"):
+
+```python
+# Eksempel med 2026-satser
+opslag = BeloebsgraenserOpslag.fra_satser(
+    satser             = indlæs_offentlige_satser(filsti),
+    aar                = 2026,
+    aar_til_folkepension = 5,   # ≤ 7 → nær-pensionssats
+)
+```
+
+Satserne er gemt i `verd/data/offentlige_satser.csv` med kolonner `produkt`, `aar`, `beloebsgraense_dkk`, `betingelse`. Filen indeholder data for 2025 og 2026.
+
+| Betingelse | Aldersopsparing | Ratepension |
+|---|---|---|
+| Normal (`normal`) | Lav grænse | Grænse |
+| Nær pension (`nær_pension`) | Høj grænse | Grænse |
+| Livrente | Ingen grænse | — |
+
+---
+
+## 10. Omkostningsmodel
+
+`OmkostningsFunktion` er en callable `(Policy, float) → float` (DKK/år). To implementationer:
+
+- `nul_omkostning` — returnerer altid 0,0 (standard hvis ikke angivet)
+- `standard_omkostning(market, aum_rate=0.005, styk_aar=200.0)` — fabrik der returnerer:
+
+$$c(t) = \text{aum\_rate} \cdot V_{\text{total}}(t) + \text{styk\_aar}$$
+
+Dvs. 0,5 % af samlet depotværdi per år plus 200 DKK fast per år.
+
+---
+
+## 11. Validering
+
+`validering.py` indeholder sanity checks der kan køres efter fremregningen:
+
+| Funktion | Tjekker |
+|---|---|
+| `check_sandsynligheder(fordeling)` | Sandsynligheder summer til 1,0 ± tolerence |
+| `check_p_alive_monoton(skridt)` | $p(\text{I\_LIVE})$ er monotont aftagende |
+| `kør_alle_checks(police, skridt, marked)` | Kører begge ovenstående checks |
+
+Funktionerne kaster `ValueError` ved overtrædelse.
+
+---
+
+## 12. Centrale antagelser
 
 | # | Antagelse | Implikation |
 |---|---|---|
 | A1 | **To tilstande** — kun I_LIVE og DOED | Invalid, fripolice og genkøb er ikke modelleret |
 | A2 | **Deterministisk finansielt marked** | Ingen afkastusikkerhed; $r$ er konstant over hele perioden |
 | A3 | **Gompertz-Makeham dødelighed** — tidshomogen | Samme dødelighedsintensitet i hele fremregningsperioden; ingen fremtidig dødelighedsforbedring |
-| A4 | **Rent unit-link** — $R_d = 0$ i opsparingen | Ingen ekstra dødsfaldsdækning ud over depotets aktuelle værdi |
-| A5 | **Diskret tid** — $\Delta t = 1/12$ | Euler-diskretisering; numerisk fejl er $O(\Delta t^2) \approx 0,007$ pr. skridt |
-| A6 | **Indbetaling proportional til depotandele** | Indbetalingen fordeles til de tre depoter i samme forhold som deres aktuelle størrelse |
+| A4 | **Rent unit-link** — $R_d = 0$ i opsparingen | Ingen ekstra dødsfaldsdækning ud over depotets aktuelleværdi |
+| A5 | **Diskret tid** — $\Delta t = 1/12$ | Euler-diskretisering; numerisk fejl er $O(\Delta t^2) \approx 0{,}007$ pr. skridt |
+| A6 | **Indbetaling proportional til depotandele** | Indbetalingen fordeles til de tre depoter i samme forhold som deres aktuelle størrelse (ligeligt hvis alle depoter er nul) |
 | A7 | **`er_under_udbetaling` er eksplicit** | Systemet skifter *ikke* automatisk til udbetaling ved pensionsalderen — dette styres af kalderen |
 | A8 | **Annuitetsfaktorer genberegnes ved hvert step** | Ydelsen ændrer sig månedligt med den resterende depotværdi og resterende løbetid |
+| A9 | **Risikopræmier er eksterne** | `RisikoBundle` fratrækkes bruttopræmien; ingen kobling til `RisikoSummer`/biometri i fremregningslaget |
 
 ---
 
-## 9. Eksempel — Konkrete inputparametre
+## 13. Eksempel — Konkrete inputparametre
 
 ```python
+from datetime import date
+from verd import (
+    GompertzMakeham, DeterministicMarket, Policy, PolicyState,
+    PraemieFlow, RisikoBundle, RisikoDaekning,
+    standard_toetilstands_model, fremregn,
+    udbetaling_cashflow_funktion, praemieflow_cashflow_funktion,
+    standard_omkostning, kør_alle_checks,
+)
+
 # Dødelighedsmodel (dansk mand, G82-lignende)
 biometri = GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)
 
 # Finansielt marked (5 % p.a. kontinuert afkast)
 marked = DeterministicMarket(r=0.05, enhedspris_0=100.0)
 
-# Police
-police = Policy(
-    foedselsdato    = date(1980, 1, 15),
-    tegningsdato    = date(2020, 6, 1),   # alder ≈ 40,4 år
-    pensionsalder   = 67,
-    loen            = 600_000,            # DKK/år
-    indbetalingsprocent = 0.15,           # 90.000 DKK/år
-    ratepensionsopsparing = 800.0,        # enheder = 80.000 DKK
-    ratepensionsvarighed  = 10,           # år
-    livrentedepot   = 500.0,              # enheder = 50.000 DKK
+# Risikodækning
+risiko = RisikoBundle([
+    RisikoDaekning("Dødsfald", 500.0),
+    RisikoDaekning("TAE",      700.0),
+    RisikoDaekning("SUL",      300.0),
+])
+
+# Præmieallokering: 60 % til ratepension, 20 % til aldersopsparing
+praemieflow = PraemieFlow(
+    risiko_bundle          = risiko,
+    ratepension_andel      = 0.60,
+    aldersopsparing_andel  = 0.20,
 )
 
-# Omkostningsmodel: 0,5 % AUM p.a. + 200 DKK/år fast
-omk = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
+# Police (opsparing)
+police = Policy.fra_dkk(
+    foedselsdato         = date(1980, 1, 15),
+    tegningsdato         = date(2020, 6, 1),   # alder ≈ 40,4 år
+    pensionsalder        = 67,
+    loen                 = 600_000,            # DKK/år
+    indbetalingsprocent  = 0.15,               # 90.000 DKK/år brutto
+    ratepensionsopsparing_dkk = 80_000,
+    ratepensionsvarighed = 10,                 # år
+    livrentedepot_dkk    = 50_000,
+    marked               = marked,
+    risiko_bundle        = risiko,
+)
+
+# Fremregning — opsparingsfase (26,6 år til pension)
+tilstandsmodel   = standard_toetilstands_model(biometri)
+cashflow_funk    = praemieflow_cashflow_funktion(praemieflow)
+omkostning_funk  = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
+fordeling        = [(police, 1.0)]
+
+antal_skridt_opsp = round(26.6 * 12)
+skridt_opsp = fremregn(fordeling, antal_skridt_opsp, marked,
+                       tilstandsmodel, cashflow_funk, omkostning_funk)
+
+kør_alle_checks(police, skridt_opsp, marked)
 ```
 
 **Typisk output ved pensionsalder (t ≈ 26,6 år):**
@@ -225,17 +381,15 @@ omk = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
 | Størrelse | Værdi |
 |---|---|
 | Overlevelsessandsynlighed $p_0$ | ≈ 0,963 |
-| Ratepension (betinget) | ≈ 750.000 DKK |
-| Livrente (betinget) | ≈ 475.000 DKK |
-| Total depot (betinget) | ≈ 1.225.000 DKK |
+| Ratepension (betinget depot) | ≈ 750.000 DKK |
+| Livrente (betinget depot) | ≈ 475.000 DKK |
+| Total betinget depot | ≈ 1.225.000 DKK |
 
 ---
 
-## 10. Arkitektur og dataflow
+## 14. Arkitektur og dataflow
 
 ### Diagram 1 — Overordnet modulstruktur
-
-Viser hvilke inputparametre der opretter hvilke modeller, og hvordan disse flyder ind i fremregningsalgoritmen.
 
 ```mermaid
 flowchart TD
@@ -252,8 +406,14 @@ flowchart TD
         aldersopsparing
         ratepensionsopsparing, ratepensionsvarighed
         livrentedepot
-        er_under_udbetaling"]
-        UI4["**Omkostningsparametre**
+        er_under_udbetaling
+        risiko_bundle"]
+        UI4["**PraemieFlow**
+        risiko_bundle
+        ratepension_andel
+        aldersopsparing_andel
+        beloebsgraenser"]
+        UI5["**Omkostningsparametre**
         aum_rate, styk_aar"]
     end
 
@@ -281,6 +441,16 @@ flowchart TD
         ─────────────────
         (Policy, t) → DKK/år
         aum_rate·V(t) + styk_aar"]
+        PF["**PraemieFlow**
+        praemieflow.py
+        ─────────────────
+        brutto → risiko + π_ald
+        + π_rate + π_liv"]
+        SAT["**BeloebsgraenserOpslag**
+        offentlige_satser.py
+        ─────────────────
+        skattemæssige lofter
+        fra CSV-tabel"]
     end
 
     subgraph FREM ["Fremregning (fremregning.py)"]
@@ -302,31 +472,35 @@ flowchart TD
         • depoter i DKK per tilstand
         • p(I_LIVE), p(DOED)
         • indbetaling/udbetaling/omkostning"]
+        VALID["**validering.py**
+        kør_alle_checks()"]
         PLOT["**plot_fremregning()**
-        plot.py
-        4-panel graf"]
-        FASE3["**(Phase 3)**
-        Reserveberegning
-        Thiele baglæns"]
+        plot.py — 4-panel graf"]
+        EXPORT["**til_dataframe() / CSV**
+        eksportering.py"]
     end
 
     UI1 --> BIO
     UI2 --> MKT
     UI3 --> DIST
     UI3 --> CF
-    UI4 --> OMK
+    UI4 --> PF
+    UI5 --> OMK
+    SAT --> PF
     MKT --> OMK
     BIO --> TS
     BIO --> CF
     MKT --> CF
+    PF --> CF
     DIST --> ENGINE
     TS --> ENGINE
     CF --> ENGINE
     OMK --> ENGINE
     MKT --> ENGINE
     ENGINE --> SKRIDT
+    SKRIDT --> VALID
     SKRIDT --> PLOT
-    SKRIDT --> FASE3
+    SKRIDT --> EXPORT
 ```
 
 ---
@@ -353,9 +527,12 @@ flowchart TD
         → CashflowSats
         ─────────────────────────────
         Opsparingsfase:
-          π = loen × indbetalingsprocent
-          fordelt på depoter ∝ enhedsandele
+          PraemieFlow.beregn(brutto) → π_d per depot
+          fordelt: ratepension_andel, aldersopsparing_andel, rest→livrente
+          minus: risikopræmie (RisikoBundle)
+          lofter: BeloebsgraenserOpslag
         Udbetalingsfase:
+          b_ald  = V_ald / dt  (engangsudbetaling)
           b_rate = V_rate / ä_n(rest_år)
           b_liv  = V_liv  / ä_x(alder)
           ← biometri + marked til annuitet"]
@@ -418,21 +595,50 @@ flowchart TD
 | Policy-felt | Bruges i | Formål |
 |---|---|---|
 | `foedselsdato`, `tegningsdato` | `alder_ved_tegning()` → `fremregn()` | Beregner alder $x+t$ ved hvert tidsstep |
-| `loen`, `indbetalingsprocent` | `simpel_opsparings_cashflow()` | Beregner indbetalingssats $\pi = \ell \times p$ |
-| `aldersopsparing`, `ratepensionsopsparing`, `livrentedepot` | `thiele_step()`, `omkostning`, `udbetaling` | Nuværende depotstørrelser (enheder) — opdateres hvert step |
+| `loen`, `indbetalingsprocent` | `simpel_opsparings_cashflow()` | Beregner bruttopræmiesats $\pi = \ell \times p$ |
+| `aldersopsparing`, `ratepensionsopsparing`, `livrentedepot` | `thiele_step()`, `omkostning`, `udbetaling` | Nuværende depotstørrelser i enheder — opdateres hvert step |
 | `ratepensionsvarighed` | `udbetaling_cashflow_funktion()` | Beregner resterende udbetalingsperiode for $\ddot{a}_n$ |
 | `er_under_udbetaling` | Alle cashflow-funktioner | Brancher mellem opsparings- og udbetalingslogik |
 | `pensionsalder` | Kaldende kode | Bestemmer antal skridt i opsparingsfasen (`t_pension`) — bruges **ikke** direkte af `fremregn()` |
 | `tilstand` | `fremregn()`, `thiele_step()` | Identificerer hvilken Markov-tilstand policyen tilhører |
-| `gruppe_id`, `omkostningssats_id` | *(opslagsnøgler — Phase 2+)* | Reserveret til fremtidig tabelopslag |
+| `risiko_bundle` | `PraemieFlow`, `praemieflow_cashflow_funktion()` | Risikopræmie fratrukket bruttopræmien inden depotallokering |
+| `gruppe_id`, `omkostningssats_id` | *(opslagsnøgler — fremtidig brug)* | Reserveret til fremtidig tabelopslag |
 
 ---
 
-## 11. Hvad er ikke med i v1.0
+## 15. Moduloversigt
+
+| Fil | Indhold |
+|---|---|
+| `policy_state.py` | `PolicyState` enum (I_LIVE, DOED) |
+| `policy.py` | `Policy` dataklasse |
+| `policy_distribution.py` | `PolicyDistribution` type + `initial_distribution()` |
+| `biometric_model.py` | `BiometricModel` ABC |
+| `gompertz_makeham.py` | `GompertzMakeham` implementation |
+| `financial_market.py` | `FinancialMarket` ABC |
+| `deterministic_market.py` | `DeterministicMarket` implementation |
+| `overgang.py` | `OvergangsIntensitet`, `Overgang`, `Tilstandsmodel` |
+| `thiele.py` | `RisikoSummer`, `CashflowSats`, `thiele_step()` |
+| `fremregning.py` | `fremregn()`, `TilstandsSkridt`, `FremregningsSkridt`, cashflow-hjælpere |
+| `udbetaling.py` | `livrente_annuitet()`, `sikker_annuitet()`, `udbetaling_cashflow_funktion()` |
+| `omkostning.py` | `OmkostningsFunktion`, `nul_omkostning`, `standard_omkostning()` |
+| `risiko.py` | `RisikoDaekning`, `RisikoBundle`, `STANDARD_RISIKO_BUNDLE` |
+| `praemieflow.py` | `PraemieFlow`, `PraemieFlowResultat` |
+| `offentlige_satser.py` | `indlæs_offentlige_satser()`, `BeloebsgraenserOpslag` |
+| `validering.py` | `check_sandsynligheder()`, `check_p_alive_monoton()`, `kør_alle_checks()` |
+| `eksportering.py` | `til_dataframe()`, `eksporter_cashflows_csv()`, `print_cashflow_tabel()`, `print_policeoversigt()` |
+| `plot.py` | `plot_fremregning()`, `plot_fra_dataframe()` |
+| `data/offentlige_satser.csv` | Skattemæssige indbetalingsgrænser 2025–2026 |
+
+---
+
+## 16. Hvad er ikke med i v1.0
 
 - Stokastisk finansielt marked (rentekurve, scenariebaseret)
+- `DoedsydelsesType` — valg af dødelsydelse (DEPOT / RESTERENDE_RATER / INGEN) og den tilhørende risikosum-beregning
 - Invalid-tilstand
 - Fripolice og genkøb
-- Ekstern dødsfaldsdækning ($S_d \neq 0$)
+- Ekstern dødsfaldsdækning ($S_d \neq 0$) udover via `RisikoBundle`
 - Porteføljeaggregering
 - Reserveberegning (Thiele baglæns — Phase 3)
+- Premium-indeksering

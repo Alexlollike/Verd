@@ -16,6 +16,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from verd.risiko import RisikoBundle
 
 from verd.policy_state import PolicyState
 
@@ -72,6 +76,7 @@ class Policy:
     ratepensionsvarighed: int
     livrentedepot: float
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
+    risiko_bundle: RisikoBundle | None = field(default=None)
 
     @classmethod
     def fra_dkk(

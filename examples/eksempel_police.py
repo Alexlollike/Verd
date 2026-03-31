@@ -1,43 +1,45 @@
 """
-Eksempel: Opret og print en unit-link police (Phase 1 done-kriterium).
+Eksempel: End-to-end fremregning af en unit-link police.
 
 Demonstrerer:
-  - Oprettelse af en Policy med depotværdier i DKK via Policy.fra_dkk()
+  - Oprettelse af Policy med depotværdier i DKK
   - GompertzMakeham dødelighedsmodel
-  - DeterministicMarket med voksende enhedspris
-  - Konvertering DKK ↔ enheder
-  - PolicyDistribution (initial)
+  - DeterministicMarket
+  - Sandsynlighedsvægtet fremregning via Thieles differentialligning
+  - Validering (kør_alle_checks)
+  - Formateret output: print_policeoversigt + eksport til CSV
 
 Kør med:
     python examples/eksempel_police.py
 """
 
-from datetime import date
 import math
+from datetime import date
 
 from verd import (
     DeterministicMarket,
     GompertzMakeham,
     Policy,
     PolicyState,
+    PraemieFlow,
+    fremregn,
     initial_distribution,
+    kør_alle_checks,
+    praemieflow_cashflow_funktion,
+    print_policeoversigt,
+    eksporter_cashflows_csv,
+    simpel_cashflow_funktion,
+    standard_toetilstands_model,
 )
 
 # ---------------------------------------------------------------------------
-# Biometrisk model — Gompertz-Makeham med typiske danske parametre (mand)
-# µ(x) = 0.0005 + 0.00004 · exp(0.09 · x)
+# Modeller
 # ---------------------------------------------------------------------------
 biometri = GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)
-
-# ---------------------------------------------------------------------------
-# Finansielt marked — deterministisk med 5 % kontinuert afkast
-# Startende enhedspris: 100 DKK/enhed
-# ---------------------------------------------------------------------------
 marked = DeterministicMarket(r=math.log(1.05), enhedspris_0=100.0)
 
 # ---------------------------------------------------------------------------
-# Police — unit-link aldersopsparing + ratepension + livrente
-# Depotværdier angives i DKK; konverteres automatisk til enheder internt
+# Police — 40-årig mand, 250.000 DKK i depot, pensionering ved 67
 # ---------------------------------------------------------------------------
 police = Policy.fra_dkk(
     foedselsdato=date(1980, 1, 15),
@@ -46,90 +48,68 @@ police = Policy.fra_dkk(
     er_under_udbetaling=False,
     gruppe_id="DK_MAND_2023",
     omkostningssats_id="STANDARD",
-    loen=600_000.0,              # 600.000 DKK/år
-    indbetalingsprocent=0.15,    # 15 % af løn
-    aldersopsparing=120_000.0,   # DKK
-    ratepensionsopsparing=80_000.0,  # DKK
+    loen=600_000.0,
+    indbetalingsprocent=0.15,
+    aldersopsparing=120_000.0,
+    ratepensionsopsparing=80_000.0,
     ratepensionsvarighed=10,
-    livrentedepot=50_000.0,      # DKK
+    livrentedepot=50_000.0,
     enhedspris=marked.enhedspris(0.0),
     tilstand=PolicyState.I_LIVE,
 )
 
-# ---------------------------------------------------------------------------
-# Print police
-# ---------------------------------------------------------------------------
-print("=" * 60)
-print("EKSEMPEL POLICE (UNIT-LINK, DEPOTER DEFINERET I DKK)")
-print("=" * 60)
-print(police)
-
-# ---------------------------------------------------------------------------
-# Enhedspris og depotværdi ved t=0 og t=1
-# ---------------------------------------------------------------------------
-t0, t1 = 0.0, 1.0
-kurs_t0 = marked.enhedspris(t0)
-kurs_t1 = marked.enhedspris(t1)
-
-print()
-print("ENHEDSPRIS OG DEPOTVÆRDI")
-print("-" * 60)
-print(f"  Enhedspris t=0          : {kurs_t0:>10.4f} DKK/enhed")
-print(f"  Enhedspris t=1          : {kurs_t1:>10.4f} DKK/enhed")
-print(f"  Vækst i enhedspris      : {(kurs_t1/kurs_t0 - 1):.2%}")
-print()
-print(f"  Depotværdi t=0          : {police.depotvaerdi_dkk(kurs_t0):>12,.2f} DKK")
-print(f"  Depotværdi t=1          : {police.depotvaerdi_dkk(kurs_t1):>12,.2f} DKK")
-print(f"  (Enhedsbeholdning uændret: {police.total_enheder():,.1f} enh.)")
-
-# ---------------------------------------------------------------------------
-# DKK → enheder konvertering (præmie indbetaling)
-# ---------------------------------------------------------------------------
-praemie_dkk = 10_000.0
-enheder_kobt = marked.dkk_til_enheder(praemie_dkk, t0)
-tilbageregnet_dkk = marked.enheder_til_dkk(enheder_kobt, t0)
-
-print()
-print("KONVERTERING DKK → ENHEDER (PRÆMIE)")
-print("-" * 60)
-print(f"  Præmie                  : {praemie_dkk:>10,.2f} DKK")
-print(f"  Køber enheder (t=0)     : {enheder_kobt:>10.4f} enh.")
-print(f"  Tilbageregnet (kontrol) : {tilbageregnet_dkk:>10,.2f} DKK  ✓")
-
-# ---------------------------------------------------------------------------
-# Biometri — dødelighedsintensitet og overlevelsessandsynlighed
-# ---------------------------------------------------------------------------
-# Beregn nuværende alder fra fødselsdato og tegningsdato (approksimeret)
-import datetime
-nu = police.tegningsdato
-alder_aar = (nu - police.foedselsdato).days / 365.25
-
-dt = 1 / 12  # månedligt tidsstep
-
-mu = biometri.mortality_intensity(alder_aar)
-p_overlev = biometri.survival_probability(alder_aar, dt)
-q_doed = biometri.death_probability(alder_aar, dt)
-
-print()
-print("BIOMETRI (VED TEGNING)")
-print("-" * 60)
-print(f"  Alder ved tegning       : {alder_aar:.2f} år")
-print(f"  µ(x) dødelighedsintens. : {mu:.6f} år⁻¹")
-print(f"  p (overlev 1 måned)     : {p_overlev:.8f}")
-print(f"  q (dø i 1 måned)        : {q_doed:.8f}")
-
-# ---------------------------------------------------------------------------
-# PolicyDistribution
-# ---------------------------------------------------------------------------
 fordeling = initial_distribution(police)
-print()
-print("POLICEDISTRIBUTION (INITIAL)")
-print("-" * 60)
-for pol, sandsynlighed in fordeling:
-    print(f"  Tilstand: {pol.tilstand.value:<10}  Sandsynlighed: {sandsynlighed:.4f}")
-print(f"  Sum af sandsynligheder  : {sum(s for _, s in fordeling):.4f}  ✓")
+tilstandsmodel = standard_toetilstands_model(biometri)
 
+# ---------------------------------------------------------------------------
+# Præmieallokering — fordeling af indbetalingen på de tre depoter
+# Andele sat proportionalt med de initielle depotværdier:
+#   aldersopsparing  : 120.000 / 250.000 = 0,48
+#   ratepension      :  80.000 / 250.000 = 0,32
+#   livrente (rest)  :  50.000 / 250.000 = 0,20
+# ---------------------------------------------------------------------------
+praemieallokering = PraemieFlow(
+    risiko_bundle=None,
+    beloebsgraenser=None,
+    ratepension_andel=80_000 / 250_000,
+    aldersopsparing_andel=120_000 / 250_000,
+)
+
+# ---------------------------------------------------------------------------
+# Fremregning — 60 år (opsparing + udbetaling til alder 100)
+# ---------------------------------------------------------------------------
+ANTAL_AAR = 60
+cashflow_funktion = simpel_cashflow_funktion(
+    biometric=biometri,
+    market=marked,
+    opsparing_func=praemieflow_cashflow_funktion(praemieallokering),
+)
+skridt = fremregn(
+    distribution=fordeling,
+    antal_skridt=ANTAL_AAR * 12,
+    market=marked,
+    tilstandsmodel=tilstandsmodel,
+    cashflow_funktion=cashflow_funktion,
+    dt=1 / 12,
+    t_0=0.0,
+)
+
+# ---------------------------------------------------------------------------
+# Validering
+# ---------------------------------------------------------------------------
+kør_alle_checks(police, skridt, marked)
+print("Validering: OK")
 print()
-print("=" * 60)
-print("Phase 1 done-kriterium: Police beskrevet i kode og printet ✓")
-print("=" * 60)
+
+# ---------------------------------------------------------------------------
+# Samlet politikoversigt
+# ---------------------------------------------------------------------------
+print_policeoversigt(police, skridt, marked)
+
+# ---------------------------------------------------------------------------
+# CSV-eksport
+# ---------------------------------------------------------------------------
+csv_sti = "fremregning_eksempel.csv"
+eksporter_cashflows_csv(skridt, csv_sti)
+print()
+print(f"Fremregning eksporteret til: {csv_sti}")

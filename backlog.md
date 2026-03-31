@@ -10,21 +10,21 @@ Brug `[x]` når en opgave er færdig.
 
 **Manglende output-funktioner (Fase 2)**
 - [x] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
-- [ ] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
+- [x] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
 
 **Validering (Fase 3)**
-- [ ] Opret `verd/validering.py`
-- [ ] Implementer `check_sandsynligheder(fordeling)` — summer til 1.0 (tolerance 1e-9)
-- [ ] Implementer `check_p_alive_monoton(cashflows)` — `p_alive` er aftagende
-- [ ] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
+- [x] Opret `verd/validering.py`
+- [x] Implementer `check_sandsynligheder(fordeling)` — summer til 1.0 (tolerance 1e-9)
+- [x] Implementer `check_p_alive_monoton(cashflows)` — `p_alive` er aftagende
+- [x] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
 
 **CSV og formateret output (Fase 3)**
 - [x] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
-- [ ] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
+- [x] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
   - Policestamdata
   - Nøgletal (depotværdi, V(0), sum af indbetalinger, sum af ydelser)
   - Første og sidste 5 rækker af cashflowtabel
-- [ ] Opdater `examples/eksempel_police.py` til komplet end-to-end eksempel
+- [x] Opdater `examples/eksempel_police.py` til komplet end-to-end eksempel
 
 ---
 
@@ -289,59 +289,136 @@ ny `verd/humankapital.py`, ny `verd/multi_fonds_marked.py`, `verd/__init__.py`
 
 ---
 
-### G — Risikopræmie for rene risikoprodukter (dødsfald, TAE, SUL)
+### G — Præmieflow: risikodækninger og allokeringsalgoritme
 
-**Baggrund**: Ud over opsparingen dækker en pensionspolice typisk rene risikoprodukter:
-- **Dødsfald**: udbetaling til efterladte ved død
+**Baggrund**: Bruttoindbetalingen gennemløber to transformationer, inden den rammer
+opsparingsdepotterne:
+
+```
+π_brutto(t)
+  − risikopraemie(t)          ← finansierer dødsfald/TAE/SUL-dækninger
+  = π_netto(t)
+      → ratepension            ← op til skattemæssig beløbsgrænse
+      → aldersopsparing        ← op til skattemæssig beløbsgrænse
+      → livrente               ← resterende (ingen beløbsgrænse)
+```
+
+Disse to led hænger uløseligt sammen: risikodelen bestemmer størrelsen af `π_netto`,
+og allokeringsdelen bestemmer hvordan `π_netto` fordeles. Begge implementeres i ét
+præmielag (`verd/praemieflow.py` + `verd/indbetaling.py`).
+
+**Risikodækninger** finansierer rene risikoprodukter:
+- **Dødsfald**: engangsudbetaling til efterladte ved død
 - **TAE** (Tab af Erhvervsevne): løbende udbetaling ved varig invaliditet
 - **SUL** (Sum ved Ulykkestilfælde/Livstruende sygdom): engangsudbetaling ved kritisk sygdom
 
-Disse dækninger finansieres via en **risikopræmie** der fratrækkes præmien, *inden*
-den resterende nettopræmie fordeles på de tre opsparingsprodukter.
+Hvis `π_netto < 0` (risikopræmie overstiger bruttopræmien) trækkes differencen fra
+depottet (aldersopsparing først).
+
+**Allokeringsalgoritme** — beløbsgrænser pr. 2026 (kilde: skat.dk):
+- Ratepension: **68.700 kr./år**
+- Aldersopsparing (>7 år til folkepensionsalder): **9.900 kr./år**
+- Aldersopsparing (≤7 år til folkepensionsalder): **64.200 kr./år**
+- Livrente: **ingen beløbsgrænse**
+
+Satserne gemmes i `verd/data/offentlige_satser.csv` og kan opdateres hvert år
+uden kodeændringer.
 
 **Afhængigheder**: Ingen — kan starte parallelt med alle andre.
 
-**Modellering**:
+**Datasæt**: `verd/data/offentlige_satser.csv`
+
 ```
-π_netto(t) = π_brutto(t) − risikopraemie_pr_maaned
-risikopraemie_pr_maaned = risikopraemie_aarlig / 12
+produkt,aar,beloebsgraense_dkk,betingelse
+aldersopsparing,2025,9400,normal
+aldersopsparing,2025,61200,nær_pension
+ratepension,2025,65500,
+aldersopsparing,2026,9900,normal
+aldersopsparing,2026,64200,nær_pension
+ratepension,2026,68700,
+livrente,2026,,
 ```
-Hvis `π_netto < 0` trækkes differencen fra depottet.
+
+Kolonner:
+- `produkt`: `aldersopsparing` | `ratepension` | `livrente`
+- `aar`: kalenderår satsen gælder
+- `beloebsgraense_dkk`: max indbetaling pr. år (blank = ingen grænse)
+- `betingelse`: `normal` (>7 år til folkepensionsalder), `nær_pension` (≤7 år), blank = gælder altid
 
 **Opgaver**:
-- [ ] Tilføj `RisikoDaekning(dataclass)` i `verd/risiko.py`:
+
+*Risikodækninger — `verd/risiko.py`*:
+- [ ] Tilføj `RisikoDaekning(dataclass)`:
   ```python
   @dataclass
   class RisikoDaekning:
       navn: str                        # fx "Dødsfald", "TAE", "SUL"
       aarlig_praemie_dkk: float
   ```
-- [ ] Tilføj `RisikoBundle(dataclass)` i `verd/risiko.py`:
+- [ ] Tilføj `RisikoBundle(dataclass)`:
   - `daekninger: list[RisikoDaekning]`
   - Property `aarlig_praemie_dkk → float`: sum af alle dækningers præmier
   - Property `maanedlig_praemie_dkk → float`: `aarlig_praemie_dkk / 12`
-- [ ] Definer standardbundles som konstanter i `verd/risiko.py`:
+- [ ] Definer standardbundle som konstant:
   ```python
   STANDARD_RISIKO_BUNDLE = RisikoBundle(daekninger=[
       RisikoDaekning(navn="Dødsfald", aarlig_praemie_dkk=500.0),
       RisikoDaekning(navn="TAE",      aarlig_praemie_dkk=700.0),
       RisikoDaekning(navn="SUL",      aarlig_praemie_dkk=300.0),
   ])
-  # Samlet: 1.500 kr/år = 125 kr/md
+  # Samlet: 1500 kr/år = 125 kr/md
   ```
 - [ ] Tilføj `risiko_bundle: RisikoBundle | None = None` på `Policy`
-- [ ] Opdatér indbetalingslogikken i `verd/indbetaling.py`:
-  - Træk `risiko_bundle.maanedlig_praemie_dkk` fra bruttoindbetalingen før allokering
-  - Håndtér tilfældet `π_netto < 0`: træk fra depottet (aldersopsparing først)
-- [ ] Tilføj `examples/eksempel_risiko.py`:
-  - Vis effekten på depotudviklingen: med vs. uden risikodækninger (1.500 kr/år)
-- [ ] Unit-tests i `tests/test_risiko.py`:
+
+*Beløbsgrænser — `verd/offentlige_satser.py`*:
+- [ ] Opret `verd/data/offentlige_satser.csv` med satserne for 2025 og 2026
+- [ ] Implementér `indlæs_offentlige_satser(filsti: Path) → dict`
+  - Returnér `{(produkt, aar, betingelse): beloebsgraense_dkk | None}`
+  - Kast `ValueError` ved ukendt `produkt`-værdi eller manglende påkrævede kolonner
+- [ ] Implementér `BeloebsgraenserOpslag(dataclass)`:
+  - `aar: int`, `aar_til_folkepension: float`
+  - `aldersopsparing_max: float` — `nær_pension`-grænse hvis ≤7 år til pension, ellers `normal`
+  - `ratepension_max: float`
+  - `livrente_max: float | None` — `None` = ingen grænse
+
+*Præmieflow — `verd/praemieflow.py`*:
+- [ ] Implementér `PraemieFlow(dataclass)`:
+  ```python
+  @dataclass
+  class PraemieFlow:
+      risiko_bundle: RisikoBundle | None
+      beloebsgraenser: BeloebsgraenserOpslag | None
+      ratepension_andel: float    # ønsket andel af π_netto til ratepension (0–1)
+      aldersopsparing_andel: float  # ønsket andel til aldersopsparing (0–1)
+      # livrente_andel = 1 - ratepension_andel - aldersopsparing_andel
+  ```
+- [ ] Implementér `beregn(bruttoindbetalng_aar: float) → PraemieFlowResultat`:
+  1. Beregn `π_netto = π_brutto − risiko_bundle.aarlig_praemie_dkk` (0 hvis ingen bundle)
+  2. Allokér `π_netto` proportionalt efter andele, beskær ved beløbsgrænser, rest → livrente
+  3. Returnér `PraemieFlowResultat(risikopraemie_dkk, ratepension_dkk, aldersopsparing_dkk, livrente_dkk)`
+- [ ] Håndtér `π_netto < 0`: returner negativt beløb i `aldersopsparing_dkk` (trækkes fra depot)
+- [ ] Integrér med `simpel_opsparings_cashflow()` i `verd/fremregning.py`:
+  - Acceptér valgfrit `praemieflow: PraemieFlow | None = None`
+  - `None` → nuværende proportionsbaserede fordeling (bagudkompatibelt)
+
+*Eksempel og tests*:
+- [ ] Tilføj `examples/eksempel_praemieflow.py`:
+  - 35-årig (>7 år til pension), 100.000 kr/år brutto — vis risikofradrag + allokering
+  - 60-årig (≤7 år til pension) — vis større aldersopsparingsgrænse
+  - Vis depotudvikling med vs. uden risikodækninger over 10 år
+- [ ] Unit-tests i `tests/test_praemieflow.py`:
   - [ ] `STANDARD_RISIKO_BUNDLE.aarlig_praemie_dkk == 1500.0`
   - [ ] `STANDARD_RISIKO_BUNDLE.maanedlig_praemie_dkk == 125.0`
-  - [ ] Depotværdi efter 1 år med risikopræmie = depotværdi uden − 1.500 kr (approx, før afkast)
-  - [ ] `π_netto < 0`: differencen trækkes korrekt fra aldersopsparingen
+  - [ ] `risikopraemie + ratepension + aldersopsparing + livrente == π_brutto`
+  - [ ] Overflow: `beregn(200.000)` → `ratepension_dkk == 68.700` + rest til livrente
+  - [ ] `nær_pension` (≤7 år): `aldersopsparing_max == 64.200`
+  - [ ] `normal` (>7 år): `aldersopsparing_max == 9.900`
+  - [ ] `π_netto < 0`: negativt beløb returneres korrekt i `aldersopsparing_dkk`
+  - [ ] `indlæs_offentlige_satser()` parser 2026-satserne korrekt fra CSV
+  - [ ] Depotværdi efter 1 år med risikopræmie ≈ depotværdi uden − 1.500 kr (før afkast)
 
-**Berørte filer**: ny `verd/risiko.py`, `verd/policy.py`, `verd/indbetaling.py`, `verd/__init__.py`
+**Berørte filer**: ny `verd/risiko.py`, ny `verd/offentlige_satser.py`, ny `verd/praemieflow.py`,
+ny `verd/data/offentlige_satser.csv`, `verd/policy.py`, `verd/fremregning.py`, `verd/__init__.py`
 
 ---
 

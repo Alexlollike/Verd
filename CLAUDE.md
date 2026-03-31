@@ -115,3 +115,14 @@ Implementationen bruger diskret tid (pga. policeadministrationssystemet), men de
 - Type hints på alle funktioner
 - Docstrings på alle klasser og offentlige metoder — inkluder matematisk formel hvor relevant
 - Én klasse / ét koncept per fil
+
+---
+
+## Vedligeholdelsesregel — Backlog-opgaver
+
+Når en opgave fra `backlog.md` gennemføres, **skal** følgende altid opdateres:
+
+1. **`DOKUMENTATION.md`** — afspejl ændringer i API, datastrukturer, matematisk model eller adfærd
+2. **`examples/eksempel_police.py`** — opdater eksemplet så det demonstrerer ny/ændret funktionalitet
+
+Dette gælder som det **sidste trin** i gennemførelsen af en backlog-opgave, inden opgaven markeres som færdig.

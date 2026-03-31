@@ -34,6 +34,7 @@ from verd.overgang import Tilstandsmodel
 from verd.policy import Policy
 from verd.policy_distribution import PolicyDistribution
 from verd.policy_state import PolicyState
+from verd.praemieflow import PraemieFlow
 from verd.thiele import CashflowSats, RisikoSummer, thiele_step
 
 # Signaturer for brugerdefinerbare funktioner
@@ -443,3 +444,114 @@ def fremregn(
         )
 
     return skridt
+
+
+def simpel_cashflow_funktion(
+    biometric: "BiometricModel",  # noqa: F821
+    market: FinancialMarket,
+    dt: float = 1.0 / 12.0,
+    opsparing_func: CashflowFunktion | None = None,
+) -> CashflowFunktion:
+    """
+    Fabriksfunktion: returnerer cashflow-funktion der automatisk skifter
+    mellem opsparings- og udbetalingsfase ved pensioneringstidspunktet.
+
+    Skiftet sker når ``t >= t_pension``, hvor::
+
+        t_pension = policy.pensionsalder − policy.alder_ved_tegning()
+
+    I opsparingsfasen delegeres til ``opsparing_func`` (standard:
+    ``simpel_opsparings_cashflow``). I udbetalingsfasen delegeres til
+    ``udbetaling_cashflow_funktion``.
+
+    ``policy.er_under_udbetaling`` sættes korrekt via ``dataclasses.replace``
+    inden delegation — cashflow-funktionerne behøver ikke kende til fasen selv.
+
+    Parameters
+    ----------
+    biometric:
+        Biometrisk model til livrenteannuitet-beregning i udbetalingsfasen.
+    market:
+        Finansielt marked til diskontfaktorer i udbetalingsfasen.
+    dt:
+        Tidsstep i år. Standard: 1/12 (månedligt).
+    opsparing_func:
+        Cashflow-funktion for opsparingsfasen. Standard:
+        ``simpel_opsparings_cashflow``.
+
+    Returns
+    -------
+    CashflowFunktion
+        En funktion ``(Policy, t) -> CashflowSats`` klar til brug i ``fremregn()``.
+    """
+    import dataclasses as _dc
+    from verd.udbetaling import udbetaling_cashflow_funktion
+
+    _opsparing = opsparing_func or simpel_opsparings_cashflow
+    _udbetaling_cache: dict[float, CashflowFunktion] = {}
+
+    def _cashflow(policy: Policy, t: float) -> CashflowSats:
+        t_pension = policy.pensionsalder - policy.alder_ved_tegning()
+
+        if t < t_pension:
+            pol = _dc.replace(policy, er_under_udbetaling=False) if policy.er_under_udbetaling else policy
+            return _opsparing(pol, t)
+        else:
+            pol = _dc.replace(policy, er_under_udbetaling=True) if not policy.er_under_udbetaling else policy
+            if t_pension not in _udbetaling_cache:
+                _udbetaling_cache[t_pension] = udbetaling_cashflow_funktion(
+                    biometric, market, t_pension, dt
+                )
+            return _udbetaling_cache[t_pension](pol, t)
+
+    return _cashflow
+
+
+def praemieflow_cashflow_funktion(praemieflow: PraemieFlow) -> CashflowFunktion:
+    """
+    Fabriksfunktion: returnerer cashflow-funktion for opsparingsfasen med præmieflow.
+
+    Den returnerede funktion allokerer bruttopræmien (``loen × indbetalingsprocent``)
+    via ``praemieflow.beregn()`` — dvs. risikopræmie fratrækkes først, og nettopræmien
+    fordeles efter kundens ønsker med beløbsgrænser overholdt.
+
+    Fortegnkonvention (standard aktuarnotation):
+        b_d < 0 → indbetaling (depot vokser)
+        b_d > 0 → udbetaling (depot falder)
+
+    Betalingsstrukturen:
+        π_brutto = loen × indbetalingsprocent
+        π_netto  = π_brutto − risikopraemie
+        b_rate   = −allokering_rate   (negativ → indbetaling)
+        b_ald    = −allokering_ald
+        b_liv    = −allokering_liv
+
+    Risikopræmien registreres ikke som en depot-cashflow — den er en udgift der
+    forsvinder ud af systemet (finansierer risikodækningerne). Det afspejles i at
+    summen af b_rate + b_ald + b_liv = −π_netto ≠ −π_brutto.
+
+    Parameters
+    ----------
+    praemieflow:
+        Konfigureret ``PraemieFlow`` med risikobundle, beløbsgrænser og andele.
+
+    Returns
+    -------
+    CashflowFunktion
+        En funktion ``(Policy, t) -> CashflowSats`` klar til brug i ``fremregn()``.
+    """
+
+    def _cashflow(policy: Policy, t: float) -> CashflowSats:
+        if policy.er_under_udbetaling or policy.tilstand != PolicyState.I_LIVE:
+            return CashflowSats()
+
+        bruttoindbetalng_aar = policy.loen * policy.indbetalingsprocent
+        resultat = praemieflow.beregn(bruttoindbetalng_aar)
+
+        return CashflowSats(
+            b_aldersopsparing=-resultat.aldersopsparing_dkk,
+            b_ratepension=-resultat.ratepension_dkk,
+            b_livrente=-resultat.livrente_dkk,
+        )
+
+    return _cashflow

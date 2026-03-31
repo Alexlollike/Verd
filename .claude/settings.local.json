@@ -7,7 +7,29 @@
       "Bash(python -m pytest tests/ -v)",
       "Bash(python examples/eksempel_police.py)",
       "Bash(python examples/eksempel_plot.py)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "WebSearch",
+      "Bash(python -m pytest tests/test_praemieflow.py -v)",
+      "Bash(python examples/eksempel_praemieflow.py)",
+      "Bash(python -m pytest --tb=short -q)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(jq -e '.hooks.PostToolUse[] | select\\(.matcher == \"\"Edit|Write\"\"\\) | .hooks[] | select\\(.type == \"\"command\"\"\\) | .command' \"c:/Users/Alexander Lollike/OneDrive/Claudes mappe/Verd/Verd/.claude/settings.local.json\")"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.tool_input.file_path // \"\"'); if echo \"$file\" | grep -q 'backlog\\.md'; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Du har redigeret backlog.md. Husk vedligeholdelsesreglen: opdater DOKUMENTATION.md og examples/eksempel_police.py som det sidste trin inden backlog-opgaven markeres faerdig.\"}}'; fi",
+            "statusMessage": "Tjekker backlog-vedligeholdelsesregel..."
+          }
+        ]
+      }
     ]
   }
 }
