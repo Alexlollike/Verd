@@ -13,6 +13,7 @@ Kør med:
 """
 
 from datetime import date
+import math
 
 from verd import (
     DeterministicMarket,
@@ -32,7 +33,7 @@ biometri = GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)
 # Finansielt marked — deterministisk med 5 % kontinuert afkast
 # Startende enhedspris: 100 DKK/enhed
 # ---------------------------------------------------------------------------
-marked = DeterministicMarket(r=0.05, enhedspris_0=100.0)
+marked = DeterministicMarket(r=math.log(1.05), enhedspris_0=100.0)
 
 # ---------------------------------------------------------------------------
 # Police — unit-link aldersopsparing + ratepension + livrente
