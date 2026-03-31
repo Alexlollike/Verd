@@ -372,3 +372,288 @@ De naturlige udvidelser er:
    sensitiviteten på nettocashflows
 4. **Risikopræmie** — tilføj en risikosum (`RisikoSummer`) for at
    modellere dødsfaldsdækning med ekstra udbetaling ved død
+
+---
+
+## Modul 6: Finanstilsynets dødelighedsmodel
+
+### Konceptet
+
+Gompertz-Makeham er en parametrisk model — praktisk, men ikke nødvendigvis kalibreret
+til den danske befolkning. Finanstilsynet (FT) publicerer den officielle danske
+dødelighedsmodel som forsikringsselskaber **skal** anvende til hensættelsesberegning
+(Solvens II Best Estimate). Modellen er baseret på observerede dødsfald i Danmark og
+opdateres løbende.
+
+I stedet for en formel er FT-modellen en **opslagstabel**: for hvert heltal af alderen
+`x` er intensiteten `µ(x)` opgivet. For ikke-heltallige aldre bruges lineær interpolation.
+
+```
+µ_FT(65.3) = µ_FT(65) + 0.3 · (µ_FT(66) − µ_FT(65))
+```
+
+FT-modellen er typisk opdelt på **køn** (mænd/kvinder) og indeholder et **margentillæg**
+der øger intensiteterne konservativt (forsiktighedsprincippet).
+
+### Sammenligning med Gompertz-Makeham
+
+| Egenskab | Gompertz-Makeham | FT-model |
+|---|---|---|
+| Form | Parametrisk formel | Diskret tabel |
+| Kalibrering | Generisk | Dansk befolkning |
+| Kønsopdelt | Nej (vælg parametre) | Ja (separate tabeller) |
+| Anvendelse | Forskning, illustration | Hensættelse (lovkrav) |
+
+```python
+from verd import FinanstilsynetModel, GompertzMakeham
+
+ft_m = FinanstilsynetModel(koen="M", med_margen=True)
+gm   = GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)
+
+for alder in [40, 60, 80]:
+    print(f"Alder {alder}: FT={ft_m.mortality_intensity(alder):.5f}, "
+          f"GM={gm.mortality_intensity(alder):.5f}")
+```
+
+### Opgave 6
+
+Beregn den 27-årige overlevelsessandsynlighed fra alder 40 til 67 med FT-modellen
+(mænd, med margen) og sammenlign med Gompertz-Makeham fra Opgave 2.
+Hvilken model giver lavere overlevelsessandsynlighed, og hvad er den praktiske
+konsekvens for hensættelsesberegningen?
+
+> **Hint:** Brug samme løkke som Opgave 2, men udskift `biometri`-objektet.
+
+---
+
+## Modul 7: Ophørende livrente og dødelighedsgevinster
+
+### Konceptet
+
+En **ophørende livrente** (ren livslivrente) udbetaler kun så længe pensionstageren
+er i live. Dør pensionstageren, ophører ydelsen — der er ingen efterladtedækning.
+Til gengæld er den månedlige ydelse *højere*, fordi depotet ikke er reserveret til
+efterladte: det frigøres og fordeles som **dødelighedsgevinst** til de overlevende i
+kollektivet.
+
+Modelmæssigt implementeres dette via **risikosummen** i Thiele-ligningen.
+Risikosummen `R_d` angiver, hvad der sker med depot `d` ved overgang I_LIVE → DOED:
+
+```
+dV_d/dt = r·V_d + π_d − b_d − c_d − µ(x) · R_d
+
+R_d = V_d   →  depotet overføres til kollektivet ved død (ophørende livrente)
+R_d = 0     →  depotet udbetales til efterladte ved død (garanteret livrente)
+```
+
+Den højere ydelse ved ophørende livrente opstår fordi annuitetsfaktoren `ä_x` er
+*kortere* end den garanterede annuitetsfaktor `ä_n` — der diskonteres for
+dødelighedsrisiko:
+
+```
+Ophørende: b = V / ä_x(alder)   →  ä_x < n  →  b er større
+Garanteret: b = V / ä_n          →  fast periode, ingen dødelighedsfradag
+```
+
+### Eksempel
+
+```python
+from verd import Policy
+
+# Ophørende livrente (standard)
+police_liv = Policy(..., livrente_type="ophørende", ...)
+
+# Garanteret livrente (ingen dødelighedsgevinst, efterladte modtager restydelse)
+police_garanti = Policy(..., livrente_type="garanteret", ...)
+```
+
+### Opgave 7
+
+Kør to fremregninger i udbetalingsfasen — én med ophørende og én med garanteret
+livrente — med identisk starttilstand (`V_livrentedepot = 500.000 DKK`, alder 67).
+Sammenlign:
+1. Den månedlige livrente-ydelse (første trin)
+2. Det forventede totale udbetalte beløb over 20 år
+
+Hvad er dødelighedsgevinsten i DKK pr. måned?
+
+---
+
+## Modul 8: Ratepension til efterladte ved død
+
+### Konceptet
+
+Ratepensionen udbetales normalt til pensionstageren over en fast periode (f.eks. 10 år).
+Dør pensionstageren i løbet af perioden, fortsætter ydelserne til **efterladte** —
+det er en garanteret ydelse uanset overlevelse.
+
+Modelmæssigt kræver dette en positiv risikosum for ratepensionsdepotet ved
+I_LIVE → DOED:
+
+```
+R_ratepension = V_ratepension + PV(resterende garanterede rater)
+```
+
+Nutidsværdien af de resterende rater beregnes som en **sikker annuitet**
+(ingen dødelighedsfradag, da ydelserne er garanterede):
+
+```
+PV = ä_n(resterende_år) × månedlig_rate
+   = Σ_{k=1}^{N} dt · v^k · månedlig_rate
+```
+
+**Bemærk**: For policer *i opsparingsfasen* er `R_ratepension = 0` — der er endnu
+ingen løbende rateydelse at garantere til efterladte.
+
+### Eksempel
+
+```python
+police = Policy(
+    ...,
+    ratepension_til_efterladte=True,  # standard for danske ratepensioner
+    ratepensionsvarighed=10,
+    er_under_udbetaling=True,
+)
+```
+
+### Opgave 8
+
+Antag en pensionsopsparer der dør præcis ved pensionsalderen (67 år) med
+`V_ratepension = 800.000 DKK` og 10 år tilbage af rateperioden.
+
+Beregn nutidsværdien af de garanterede efterladteydelser ved `r = 0.05` og
+`dt = 1/12`. Hvad er `R_ratepension` på dødstidspunktet?
+
+Sammenlign med en police *uden* efterladtedækning (`ratepension_til_efterladte=False`):
+hvad er risikosummen i det tilfælde?
+
+> **Hint:** Brug `sikker_annuitet(10, marked, t_pension, 1/12)` til at beregne
+> annuitetsfaktoren, og gang med den månedlige rate: `V_ratepension / (10 * 12)`.
+
+---
+
+## Modul 9: Stokastiske afkast under Q-mål
+
+### Konceptet
+
+Det deterministiske marked (`DeterministicMarket`) bruger en fast afkastrate `r` —
+der er ingen usikkerhed. I virkeligheden svinger enhedsprisen.
+
+**Q-målet** (det risikoneutrale sandsynlighedsmål) bruges til
+*markedsværdi-hensættelser* (IFRS 17, Solvens II). Under Q er det forventede afkast
+lig den risikofri rente `r_f` — men volatiliteten `σ` modelleres eksplicit:
+
+```
+Under P (fysisk):   dP = µ·P·dt + σ·P·dW        (µ = forventet afkast)
+Under Q (risikoneut.): dP = r_f·P·dt + σ·P·dW_Q  (µ → r_f ved ændring af mål)
+```
+
+Med **Black-Scholes**-diskretisering simuleres enhedsprisen som:
+
+```
+P(t+dt) = P(t) · exp((r_f − σ²/2)·dt + σ·√dt·Z),    Z ~ N(0,1)
+```
+
+Det forventede afkast under Q er netop `r_f` (martingale-betingelse):
+```
+E_Q[P(T)] = P(0) · exp(r_f · T)
+```
+
+### Tolkning
+
+Monte Carlo over Q-stier giver **fordelingen** af fremtidige cashflows og reserver —
+ikke blot ét deterministisk tal. Best Estimate (BE) under IFRS 17 er middelværdien
+over Q-stier.
+
+```python
+from verd import BlackScholesMarked, monte_carlo_fremregn
+
+marked_q = BlackScholesMarked(r_f=0.03, sigma=0.15, enhedspris_0=100.0)
+
+resultat = monte_carlo_fremregn(
+    distribution=initial_distribution(police),
+    n_stier=1000,
+    market=marked_q,
+    ...
+)
+
+# Forventet depot + 90%-konfidensinterval per tidsstep
+print(resultat.forventet_depot_dkk)
+print(resultat.percentil(0.05), resultat.percentil(0.95))
+```
+
+### Opgave 9
+
+Simulér 500 Q-stier for `BlackScholesMarked(r_f=0.03, sigma=0.20, P₀=100)`
+over 10 år med månedlige skridt.
+
+1. Verificer martingale-betingelsen: er `mean(P(10)) ≈ 100·exp(0.03·10)`?
+2. Hvad er 5%- og 95%-percentilerne for `P(10)`?
+3. Sammenlign den gennemsnitlige forventede depotudvikling med `DeterministicMarket(r=0.03)`.
+
+> **Hint:** Brug `np.mean(stier[:, -1])` for middelværdien ved T=10,
+> og `np.percentile(stier[:, -1], [5, 95])` for percentilerne.
+
+---
+
+## Modul 10: Portefølje — til- og afgang af policer
+
+### Konceptet
+
+Enkeltpolicefremregning er fundamentet. En **portefølje** er en samling af policer,
+og porteføljens samlede cashflows er summen af de individuelle.
+
+Det interessante opstår ved **hændelser**:
+- **Tilgang** (nytegning): ny police tilkommer med tegningsomkostning
+- **Afgang**: policen forlader porteføljen af en af disse årsager:
+  - `DOED` — policen er allerede modelleret biometrisk
+  - `GENKOBT` — forsikringstager vælger at hæve depotet tidligt (genkøbsomkostning)
+  - `FRIPOLICE` — indbetalinger stopper, depot fastholdes (fripoliceomkostning)
+  - `PENSIONERET` — skift til udbetalingsfase (håndteres normalt internt)
+
+Hændelsesomkostninger indgår i porteføljens `omkostning_dkk` det relevante tidsstep.
+
+### Aggregering
+
+```
+Portefolje-cashflow(t) = Σ_i fremregn(police_i)[t]  +  hændelsesomkostninger(t)
+```
+
+Lineariteten gælder: aggregeret reserve = sum af individuelle reserver.
+Det gør det muligt at analysere en hel bestand som summen af enkeltpolicer.
+
+### Driftsplan-linjer
+
+| Linje | Kilde |
+|---|---|
+| Præmieindtægt | Σ `indbetaling_dkk` over aktive policer |
+| Pensionsudbetalinger | Σ `udbetaling_dkk` over aktive policer |
+| Driftsomkostninger | Σ `omkostning_dkk` + hændelsesomkostninger |
+| Netto | Præmie − Udbetalinger − Omkostninger |
+
+### Eksempel
+
+```python
+from verd import Portefolje, tilfoej_police, afmeld_police, fremregn_portefolje, AfgangAarsag
+
+portefolje = Portefolje(policer={}, haendelser=[])
+portefolje = tilfoej_police(portefolje, "P001", police_a, t=0.0, tegningsomkostning_dkk=500.0)
+portefolje = tilfoej_police(portefolje, "P002", police_b, t=0.0, tegningsomkostning_dkk=500.0)
+
+# P002 genkøbes efter 2 år
+portefolje = afmeld_police(portefolje, "P002", t=2.0,
+                            aarsag=AfgangAarsag.GENKOBT,
+                            omkostning_dkk=1_000.0)
+
+resultat = fremregn_portefolje(portefolje, t_start=0.0, t_slut=5.0, dt=1/12, market=marked, ...)
+print(resultat.to_dataframe())
+```
+
+### Opgave 10
+
+Opret en portefølje med tre policer (alder 30, 45, 55 — alle med
+`standard_omkostning`). Den 55-årige går på pension efter 12 år.
+Kør `fremregn_portefolje` over 15 år og print en aggregeret tabel med:
+- Præmieindtægt, udbetalinger, omkostninger og netto per år
+
+I hvilket år skifter netto-linjen fra positiv til negativ, og hvad skyldes det?
