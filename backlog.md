@@ -16,10 +16,13 @@ Todo C: Ratepension til efterladte        ─┘
              ↑
     bygger på B (risikosum-mønster)
 
-Todo D: Stokastiske afkast (Q-mål)        — uafhængig, kan parallelliseres med A–C
+Todo D: Stokastiske afkast (Q-mål)        ─► Todo F: Investeringsfonde & livscyklus
+             (uafhængig af A–C, kan parallelliseres)
+
+Todo G: Risikopræmie (dødsfald, TAE, SUL) — uafhængig, kan starte nu
 ```
 
-Anbefalet rækkefølge: **A → B → C → D → E**
+Anbefalet rækkefølge: **A → B → C → D → E**, **D → F**, **G** (parallel)
 
 ---
 
@@ -211,3 +214,144 @@ modellering af enkeltpolicen (Todo A+B+C) inden implementering.
   - [ ] `Portefolje` med én police = enkelt `fremregn()` (konsistenscheck)
 
 **Berørte filer**: ny `verd/portefolje.py`, `verd/omkostning.py`, `verd/__init__.py`
+
+---
+
+## Todo F — Investeringsfonde og Livscyklusprodukter
+
+**Baggrund**: Et markedsrenteprodukt investeres typisk i en portefølje af fonde med
+forskellige risikoprofiler. Kunden vælger et livscyklusprodukt — én af 4 profiler
+(fx Høj, Mellem-høj, Mellem-lav, Lav) — der bestemmer, hvordan opsparingen fordeles
+mellem fondene, og hvordan fordelingen nedtrappes automatisk jo tættere kunden er på
+pension (svarende til PFAs "indbygget nedtrapning af risiko i alle profiler").
+
+**Teoretisk begrundelse for risikonedskalering**:
+Under CRRA-nytte (power utility) er den optimale andel investeret i risikofyldte aktiver
+proportional med forholdet mellem total formue og finansiel formue:
+
+```
+w_risiko(t) = γ · (V_finansiel(t) + HK(t)) / V_finansiel(t)
+```
+
+hvor:
+- `γ` = Merton-andelen (konstant under CRRA, afhænger af risikoaversion og Sharpe-ratio)
+- `HK(t)` = humankapital = diskonteret nutidsværdi af fremtidig løn ved tidspunkt `t`
+- `V_finansiel(t)` = depotværdi
+
+Da humankapitalen falder med alderen (den resterende lønhorisont skrumper), vil
+`w_risiko(t)` falde over tid — selv om `γ` er konstant. Dette giver den teoretiske
+motivation for at alle 4 livscyklusprofiler nedtrapper eksponeringen mod risikofyldte
+aktiver. Profilerne adskiller sig ved valget af `γ` (dvs. graden af risikovillighed).
+
+**Afhængigheder**: Bygger på **Todo D** (`BlackScholesMarked`) for stokastisk modellering
+af hvert fonds afkast. Flerfonds-udvidelsen af `FinancialMarket` etableres her.
+
+**Opgaver**:
+- [ ] Definér `InvesteringsFond(dataclass)` i `verd/investeringsfond.py`:
+  ```python
+  @dataclass
+  class InvesteringsFond:
+      navn: str
+      forventet_afkast: float   # årlig, P-mål
+      volatilitet: float        # årlig standardafvigelse
+  ```
+- [ ] Definér `FondsUnivers(dataclass)` i `verd/investeringsfond.py`:
+  - `fonde: list[InvesteringsFond]` — 3–5 fonde (fx aktier høj, aktier lav, obligationer, kreditobligationer, pengemarked)
+  - `korrelationsmatrix: np.ndarray` — (n×n) korrelationsmatrix mellem fondene
+  - Valideringsmetode: kontrollér at matrix er positiv semidefinit og symmetrisk
+- [ ] Implementér `LivescyklusProfil(dataclass)` i `verd/livescyklus.py`:
+  ```python
+  @dataclass
+  class LivescyklusProfil:
+      navn: str                        # fx "Høj", "Mellem-høj", "Mellem-lav", "Lav"
+      gamma: float                     # Merton-andel (CRRA risikoaversion)
+      glide_path: Callable[[float, float], dict[str, float]]
+      # glide_path(alder, aar_til_pension) → {fond_navn: vægt}
+      # Vægte summerer til 1.0
+  ```
+- [ ] Implementér 4 standardprofiler i `verd/livescyklus.py` med parametriserede glide-paths:
+  - Nedtrapning aktiveres typisk 15–20 år før pension
+  - Alle profiler ender i samme lav-risiko allokering ved pensionering
+  - Profilerne adskiller sig i startallokering (styret af `γ`)
+- [ ] Implementér `humankapital(alder, pensionsalder, loen, diskonteringsrente) → float`
+  i `verd/humankapital.py`:
+  - `HK(t) = loen · ä_{pensionsalder - alder}` (sikker annuitet over resterende arbejdsliv)
+- [ ] Implementér `MultiFondsMarked(FinancialMarket)` i `verd/multi_fonds_marked.py`:
+  - Indeholder `FondsUnivers` + `LivescyklusProfil`
+  - Beregner porteføljeafkast som vægtet gennemsnit af fondsafkast per tidsstep
+  - Implementerer `simuler_sti` via Cholesky-dekomponeret korrelationsmatrix
+- [ ] Tilføj `examples/eksempel_livescyklus.py`:
+  - Plot fondsvægtning over tid for alle 4 profiler (alder 30 → 70)
+  - Plot forventet depotudvikling med 10%/90%-konfidensinterval for hver profil
+- [ ] Unit-tests i `tests/test_livescyklus.py`:
+  - [ ] Fondsværgte summerer til 1.0 for alle aldre og alle 4 profiler
+  - [ ] Nedtrapning er monoton: aktieandel faldende jo tættere på pension
+  - [ ] `humankapital(pensionsalder, pensionsalder, ...) == 0.0` (ingen resterende arbejdsliv)
+  - [ ] Porteføljeafkast ≈ vægtet gennemsnit af fondsafkast (ved 0-korrelation og deterministisk)
+  - [ ] `MultiFondsMarked` med én fond og 0 volatilitet = `DeterministicMarket`
+
+**Berørte filer**: ny `verd/investeringsfond.py`, ny `verd/livescyklus.py`,
+ny `verd/humankapital.py`, ny `verd/multi_fonds_marked.py`, `verd/__init__.py`
+
+---
+
+## Todo G — Risikopræmie for rene risikoprodukter (dødsfald, TAE, SUL)
+
+**Baggrund**: Ud over opsparingen dækker en pensionspolice typisk rene risikoprodukter:
+- **Dødsfald**: udbetaling til efterladte ved død
+- **TAE** (Tab af Erhvervsevne): løbende udbetaling ved varig invaliditet
+- **SUL** (Sum ved Ulykkestilfælde/Livstruende sygdom): engangsudbetaling ved kritisk sygdom
+
+Disse dækninger finansieres via en **risikopræmie** der fratrækkes præmien, *inden*
+den resterende nettopræmie fordeles på de tre opsparingsprodukter (aldersopsparing,
+ratepensionsopsparing, livrentedepot). I første omgang modelleres risikopræmien som
+et fast beløb uafhængigt af alder, køn og helbredstilstand.
+
+**Afhængigheder**: Ingen — kan starte parallelt med alle andre todos.
+
+**Modellering**:
+Bruttoindbetalingen `π_brutto` splittes ved hvert tidsstep:
+
+```
+π_netto(t) = π_brutto(t) − risikopraemie_pr_maaned
+
+risikopraemie_pr_maaned = risikopraemie_aarlig / 12
+```
+
+`π_netto` fordeles herefter på de tre depoter efter de sædvanlige allokeringsregler.
+Hvis `π_netto < 0` (risikopræmie overstiger indbetalingen) trækkes differencen fra depottet.
+
+**Opgaver**:
+- [ ] Tilføj `RisikoDaekning(dataclass)` i `verd/risiko.py`:
+  ```python
+  @dataclass
+  class RisikoDaekning:
+      navn: str                        # fx "Dødsfald", "TAE", "SUL"
+      aarlig_praemie_dkk: float        # fast beløb, default per dækning
+  ```
+- [ ] Tilføj `RisikoBundle(dataclass)` i `verd/risiko.py`:
+  - `daekninger: list[RisikoDaekning]`
+  - Property `aarlig_praemie_dkk → float`: sum af alle dækningers præmier
+  - Property `maanedlig_praemie_dkk → float`: `aarlig_praemie_dkk / 12`
+- [ ] Definer standardbundles som konstanter i `verd/risiko.py`:
+  ```python
+  STANDARD_RISIKO_BUNDLE = RisikoBundle(daekninger=[
+      RisikoDaekning(navn="Dødsfald", aarlig_praemie_dkk=500.0),
+      RisikoDaekning(navn="TAE",      aarlig_praemie_dkk=700.0),
+      RisikoDaekning(navn="SUL",      aarlig_praemie_dkk=300.0),
+  ])
+  # Samlet: 1.500 kr/år = 125 kr/md
+  ```
+- [ ] Tilføj `risiko_bundle: RisikoBundle | None = None` på `Policy`
+- [ ] Opdatér indbetalingslogikken i `verd/indbetaling.py`:
+  - Træk `risiko_bundle.maanedlig_praemie_dkk` fra bruttoindbetalingen før allokering
+  - Håndtér tilfældet `π_netto < 0`: træk fra depottet (aldersopsparing først)
+- [ ] Tilføj `examples/eksempel_risiko.py`:
+  - Vis effekten på depotudviklingen: med vs. uden risikodækninger (1.500 kr/år)
+- [ ] Unit-tests i `tests/test_risiko.py`:
+  - [ ] `STANDARD_RISIKO_BUNDLE.aarlig_praemie_dkk == 1500.0`
+  - [ ] `STANDARD_RISIKO_BUNDLE.maanedlig_praemie_dkk == 125.0`
+  - [ ] Depotværdi efter 1 år med risikopræmie = depotværdi uden − 1.500 kr (approx, før afkast)
+  - [ ] `π_netto < 0`: differencen trækkes korrekt fra aldersopsparingen
+
+**Berørte filer**: ny `verd/risiko.py`, `verd/policy.py`, `verd/indbetaling.py`, `verd/__init__.py`
