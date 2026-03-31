@@ -14,6 +14,7 @@ Udbetalende ydelser omregnes fra enheder:
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING
@@ -22,6 +23,29 @@ if TYPE_CHECKING:
     from verd.risiko import RisikoBundle
 
 from verd.policy_state import PolicyState
+
+
+class DoedsydelsesType(enum.Enum):
+    """
+    Valgmulighed for hvad der sker med depot/hensættelse ved forsikringstagers død.
+
+    DEPOT:
+        Depotværdien udbetales ved død (depotsikring).
+        Matematisk: b^{01}(t) = depot(t), V^{DOED}(t) = 0
+        → risikosum R = b^{01} + V^{DOED} − V^{I_LIVE} = depot − depot = 0.
+        Ingen dødelighedsgevinster opstår.
+        Kun gyldigt i opsparingsfasen (er_under_udbetaling=False).
+
+    INGEN:
+        Ingen ydelse ved død.
+        Matematisk: b^{01}(t) = 0, V^{DOED}(t) = 0
+        → risikosum R = 0 + 0 − V^{I_LIVE}(t) = −depot(t) < 0.
+        Dødelighedsgevinster tilfalder overlevende forsikringstagere og øger
+        den forventede livrente-ydelse. Gyldigt i både opsparing og udbetaling.
+    """
+
+    DEPOT = "depot"
+    INGEN = "ingen"
 
 
 @dataclass
@@ -76,6 +100,7 @@ class Policy:
     ratepensionsvarighed: int
     livrentedepot: float
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
+    doedsydelses_type: DoedsydelsesType = field(default=DoedsydelsesType.INGEN)
     risiko_bundle: RisikoBundle | None = field(default=None)
 
     @classmethod
@@ -95,6 +120,7 @@ class Policy:
         livrentedepot: float,
         enhedspris: float,
         tilstand: PolicyState = PolicyState.I_LIVE,
+        doedsydelses_type: DoedsydelsesType = DoedsydelsesType.INGEN,
     ) -> "Policy":
         """
         Opret en Policy med depotværdier angivet i DKK.
@@ -133,6 +159,7 @@ class Policy:
             ratepensionsvarighed=ratepensionsvarighed,
             livrentedepot=livrentedepot / enhedspris,
             tilstand=tilstand,
+            doedsydelses_type=doedsydelses_type,
         )
 
     def alder_ved_tegning(self) -> float:
@@ -187,6 +214,7 @@ class Policy:
             f"  Tegningsdato         : {self.tegningsdato}\n"
             f"  Pensionsalder        : {self.pensionsalder} år\n"
             f"  Under udbetaling     : {self.er_under_udbetaling}\n"
+            f"  Dødelsydelse         : {self.doedsydelses_type.value}\n"
             f"  GruppeID             : {self.gruppe_id}\n"
             f"  OmkostningssatsID    : {self.omkostningssats_id}\n"
             f"  Løn                  : {self.loen:,.0f} DKK/år\n"

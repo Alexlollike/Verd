@@ -6,7 +6,7 @@ Arkitektur: Policen modelleres som en flerdimensionel Markov-proces i diskret ti
 """
 
 from verd.policy_state import PolicyState
-from verd.policy import Policy
+from verd.policy import Policy, DoedsydelsesType
 from verd.policy_distribution import PolicyDistribution, initial_distribution
 from verd.biometric_model import BiometricModel
 from verd.gompertz_makeham import GompertzMakeham
@@ -46,6 +46,7 @@ from verd.fremregning import (
     simpel_opsparings_cashflow,
     simpel_cashflow_funktion,
     nul_risikosum,
+    beregn_risikosum_funktion,
     standard_toetilstands_model,
     fremregn,
     praemieflow_cashflow_funktion,
@@ -62,6 +63,7 @@ __all__ = [
     # Grundlæggende dataklasser
     "PolicyState",
     "Policy",
+    "DoedsydelsesType",
     "PolicyDistribution",
     "initial_distribution",
     # Biometriske modeller
@@ -108,6 +110,7 @@ __all__ = [
     "simpel_opsparings_cashflow",
     "simpel_cashflow_funktion",
     "nul_risikosum",
+    "beregn_risikosum_funktion",
     "standard_toetilstands_model",
     "fremregn",
     "praemieflow_cashflow_funktion",

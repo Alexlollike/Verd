@@ -98,7 +98,59 @@ Adskilles fra den nuværende model, der implicit behandler livrenten som garante
 
 ---
 
-### C — Ratepension til efterladte ved død efter pensionering
+### C — Depotsikring i opsparingsfasen
+
+**Baggrund**: I opsparingsfasen kan forsikringstager vælge *depotsikring*: ved død udbetales
+den fulde depotværdi til efterladte. Modelmæssigt sættes dødsfaldsdækningen lig depotværdien,
+så risikosummen `S = b^{01}(t) + V^{DOED}(t) − V^{I_LIVE}(t) = 0`. Konsekvensen er at der
+ingen dødelighedsgevinster opstår — de forventede livrente-ydelser bliver tilsvarende lavere,
+fordi der betales en risikopræmie `µ(t)×S = 0`... nej: risikopræmien forsvinder *ikke*, men
+dødelighedsgevinsten modsvares præcis af risikopræmien og nettobidraget til reserven er nul.
+
+Uden depotsikring er `b^{01}(t) = 0` og `V^{DOED}(t) = 0`, så `S = −V^{I_LIVE}(t) < 0` —
+dødelighedsgevinster tilfalde de overlevende og øger den forventede livrente-ydelse.
+
+Implementeres som `doedsydelses_type: DoedsydelsesType` på `Policy` med enum-værdier
+`DEPOT` (depotsikring, risikosum = 0) og `INGEN` (ingen dødelsydelse, risikosum = −V).
+
+**Afhængigheder**: Ingen — kan starte parallelt med A.
+
+**Matematisk detalje**:
+- `DEPOT`: `b^{01}(t) = depot(t)`, `V^{DOED}(t) = 0` → `S = depot(t) − V^{I_LIVE}(t) ≈ 0`
+  (depot ≈ reserve i et rent unit-link produkt uden garantier)
+- `INGEN`: `b^{01}(t) = 0`, `V^{DOED}(t) = 0` → `S = −V^{I_LIVE}(t)`
+- Kun gyldigt i opsparingsfasen (`er_under_udbetaling = False`)
+
+**Opgaver**:
+- [ ] Tilføj `DoedsydelsesType`-enum i `verd/policy.py`:
+  ```python
+  class DoedsydelsesType(enum.Enum):
+      DEPOT = "depot"        # depotværdi udbetales ved død — risikosum ≈ 0
+      INGEN = "ingen"        # ingen ydelse ved død — dødelighedsgevinster til overlevende
+  ```
+- [ ] Tilføj `doedsydelses_type: DoedsydelsesType = DoedsydelsesType.INGEN` på `Policy`
+- [ ] Implementér `beregn_risikosum(policy, t) → float` i `verd/thiele.py` (eller `verd/udbetaling.py`):
+  - `DEPOT`: returner `0.0` (risikosummen er nul — depot og hensættelse er ens)
+  - `INGEN`: returner `−policy.depotvardi` (hensættelsen frigives ved død)
+  - Kast `ValueError` hvis `doedsydelses_type=DEPOT` og `er_under_udbetaling=True`
+    (depotsikring er kun defineret i opsparingsfasen)
+- [ ] Brug `beregn_risikosum` i Thiele-trinnet i `verd/thiele.py`
+- [ ] Eksporter `DoedsydelsesType` fra `verd/__init__.py`
+- [ ] Tilføj `examples/eksempel_depotsikring.py`:
+  - Sammenlign to policer: med og uden depotsikring
+  - Vis at forventet total udbetaling er lavere med depotsikring (ingen dødelighedsgevinster)
+  - Vis at reserve-forløbet er ens (unit-link, ingen garantier)
+- [ ] Unit-tests i `tests/test_depotsikring.py`:
+  - [ ] `DEPOT`: risikosummen = 0 for alle tidsstep i opsparingsfasen
+  - [ ] `INGEN`: risikosummen = `−V(t)` for alle tidsstep i opsparingsfasen
+  - [ ] `DEPOT` + `er_under_udbetaling=True`: `ValueError` kastes
+  - [ ] Med depotsikring: forventet total udbetaling ≤ uden depotsikring (tolerance 1e-2)
+
+**Berørte filer**: `verd/policy.py`, `verd/thiele.py`, `verd/__init__.py`
+
+---
+
+### D — Ratepension til efterladte ved død efter pensionering
 
 **Baggrund**: Ved pensionstagets død *efter* pensionsstart fortsætter ratepensionsudbetalingerne
 til efterladte i den resterende rateperiode (garanteret ydelse). Det modelleres via

@@ -31,7 +31,7 @@ from typing import Callable
 from verd.financial_market import FinancialMarket
 from verd.omkostning import OmkostningsFunktion, nul_omkostning
 from verd.overgang import Tilstandsmodel
-from verd.policy import Policy
+from verd.policy import DoedsydelsesType, Policy
 from verd.policy_distribution import PolicyDistribution
 from verd.policy_state import PolicyState
 from verd.praemieflow import PraemieFlow
@@ -205,6 +205,60 @@ def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
         Risikosum med alle depot-værdier = 0.
     """
     return RisikoSummer()
+
+
+def beregn_risikosum_funktion(market: FinancialMarket) -> RisikosumFunktion:
+    """
+    Fabriksfunktion: returnerer risikosum-funktion baseret på ``policy.doedsydelses_type``.
+
+    Dispatches ved runtime på ``policy.doedsydelses_type``:
+
+    **DEPOT** (depotsikring):
+        b^{01}(t) = depot(t), V^{DOED}(t) = 0
+        → R = b^{01} + V^{DOED} − V^{I_LIVE} = depot − depot = 0
+        Ingen dødelighedsgevinster — risikopræmien og dødelsydelsen udligner hinanden.
+        Kaster ``ValueError`` hvis ``er_under_udbetaling=True``.
+
+    **INGEN** (ingen dødelsydelse):
+        b^{01}(t) = 0, V^{DOED}(t) = 0
+        → R_d = 0 + 0 − V^{I_LIVE}_d(t) = −depot_d(t) for hvert depot d
+        Dødelighedsgevinster tilfalder overlevende og øger forventet fremtidig ydelse.
+
+    Parameters
+    ----------
+    market:
+        Finansielt marked — leverer enhedspris P(t) til DKK-omregning af risikosummen.
+
+    Returns
+    -------
+    RisikosumFunktion
+        En funktion ``(Policy, t) → RisikoSummer`` klar til brug i ``Overgang.risikosum_func``.
+
+    Raises
+    ------
+    ValueError
+        Hvis ``policy.doedsydelses_type == DoedsydelsesType.DEPOT``
+        og ``policy.er_under_udbetaling == True``.
+    """
+
+    def _f(policy: Policy, t: float) -> RisikoSummer:
+        if policy.doedsydelses_type == DoedsydelsesType.DEPOT:
+            if policy.er_under_udbetaling:
+                raise ValueError(
+                    "DoedsydelsesType.DEPOT er kun gyldigt i opsparingsfasen "
+                    "(er_under_udbetaling=True er ikke tilladt med DEPOT)"
+                )
+            return RisikoSummer()
+
+        # INGEN: R_d = −V^{I_LIVE}_d = −depot_enheder_d × P(t)
+        P_t = market.enhedspris(t)
+        return RisikoSummer(
+            aldersopsparing=-policy.aldersopsparing * P_t,
+            ratepension=-policy.ratepensionsopsparing * P_t,
+            livrente=-policy.livrentedepot * P_t,
+        )
+
+    return _f
 
 
 def standard_toetilstands_model(biometric: "BiometricModel") -> Tilstandsmodel:  # noqa: F821

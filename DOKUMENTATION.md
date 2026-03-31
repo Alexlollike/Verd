@@ -132,15 +132,41 @@ Risikosummen er det nettobeløb, der skal afregnes ved overgang til DOED:
 
 $$R_d = S_d + V_d^{\text{DOED}} - V_d^{\text{I\_LIVE}}$$
 
-- $S_d$: ekstern dødsfaldsdækning på depot $d$
+- $S_d$: ekstern dødsfaldsdækning på depot $d$ (dødelsydelse)
 - $V_d^{\text{DOED}}$: depotets hensættelse i DOED-tilstanden
 - $V_d^{\text{I\_LIVE}}$: depotets nuværende værdi
 
-I dette bibliotek er produktet rent unit-link **uden ekstern dødsfaldsdækning**: depot udbetales til bo ved død, og DOED-reserven er nul. Det giver:
+Værdien af risikosummen afhænger af `policy.doedsydelses_type` (se afsnit 5.1).
 
-$$R_d = V_d + 0 - V_d = 0$$
+### 5.1 DoedsydelsesType — hvad sker ved forsikringstagers død?
 
-Det biometriske led er strukturelt til stede i ligningerne, men bidrager numerisk med nul for opsparingsfasen. Ved udbetalingsfasens livrente gælder $R_d \neq 0$, da en levende forsikringstager har krav på fremtidige ydelser, som bortfalder ved død.
+`DoedsydelsesType` (enum på `Policy`) styrer dødelsydelsen i opsparingsfasen:
+
+| Enum-værdi | Matematisk | Risikosum | Effekt |
+|---|---|---|---|
+| `DEPOT` | $S_d = V_d$, $V_d^{\text{DOED}} = 0$ | $R_d = V_d + 0 - V_d = 0$ | Ingen dødelighedsgevinster |
+| `INGEN` | $S_d = 0$, $V_d^{\text{DOED}} = 0$ | $R_d = 0 + 0 - V_d = -V_d$ | Dødelighedsgevinster til overlevende |
+
+**DEPOT (depotsikring):** Depotværdien udbetales til efterladte ved død. Risikosummen er nul — risikopræmien $\mu \cdot R_d = 0$ bidrager ikke til depotudviklingen. Kun gyldigt i opsparingsfasen.
+
+**INGEN:** Ingen dødelsydelse. Risikosummen er negativ: $R_d = -V_d < 0$. Det biometriske led bliver $-\mu \cdot R_d = \mu \cdot V_d > 0$, som *øger* de overlevendes forventede depot (dødelighedsgevinster).
+
+**Konsekvens:** Forventet samlet udbetaling er højere med `INGEN` end med `DEPOT` — de overlevende nyder godt af de afdødes frigivne reserver.
+
+**Fabriksfunktion:** `beregn_risikosum_funktion(market)` returnerer en `RisikosumFunktion` der dispatcher på `policy.doedsydelses_type` ved runtime. Brug den som `risikosum_func` i `Overgang`:
+
+```python
+risikosum_func = beregn_risikosum_funktion(marked)
+tilstandsmodel = Tilstandsmodel(overgange=[
+    Overgang(
+        fra=PolicyState.I_LIVE, til=PolicyState.DOED,
+        intensitet=BiometriOvergangsIntensitet(biometri),
+        risikosum_func=risikosum_func,
+    )
+])
+```
+
+`nul_risikosum` returnerer altid $R_d = 0$ (tilsvarende `DEPOT`-adfærd, uanset `doedsydelses_type`).
 
 ### Diskretisering — Euler fremadskridende
 
@@ -308,7 +334,7 @@ Funktionerne kaster `ValueError` ved overtrædelse.
 | A1 | **To tilstande** — kun I_LIVE og DOED | Invalid, fripolice og genkøb er ikke modelleret |
 | A2 | **Deterministisk finansielt marked** | Ingen afkastusikkerhed; $r$ er konstant over hele perioden |
 | A3 | **Gompertz-Makeham dødelighed** — tidshomogen | Samme dødelighedsintensitet i hele fremregningsperioden; ingen fremtidig dødelighedsforbedring |
-| A4 | **Rent unit-link** — $R_d = 0$ i opsparingen | Ingen ekstra dødsfaldsdækning ud over depotets aktuelleværdi |
+| A4 | **Dødelsydelse styret af `DoedsydelsesType`** | `DEPOT`: $R_d = 0$ (depotsikring, ingen dødelighedsgevinster); `INGEN`: $R_d = -V_d$ (dødelighedsgevinster til overlevende) |
 | A5 | **Diskret tid** — $\Delta t = 1/12$ | Euler-diskretisering; numerisk fejl er $O(\Delta t^2) \approx 0{,}007$ pr. skridt |
 | A6 | **Indbetaling proportional til depotandele** | Indbetalingen fordeles til de tre depoter i samme forhold som deres aktuelle størrelse (ligeligt hvis alle depoter er nul) |
 | A7 | **`er_under_udbetaling` er eksplicit** | Systemet skifter *ikke* automatisk til udbetaling ved pensionsalderen — dette styres af kalderen |
