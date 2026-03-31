@@ -1,32 +1,34 @@
 # Backlog — Verd Aktuarbibliotek
 
-Planlagte features til v1.1+. Rækkefølgen er prioriteret efter afhængigheder.
-Afslut v1.0 (Fase 1–5 i `todo.md`) inden disse påbegyndes.
-
 Brug `[x]` når en opgave er færdig.
 
 ---
 
-## Afhængighedsgraf
+## Feature
 
-```
-Todo A: Finanstilsynets dødelighedsmodel  ─┐
-Todo B: Ophørende livrente                ─┼─► Todo E: Portefølje (til- og afgang)
-Todo C: Ratepension til efterladte        ─┘
-             ↑
-    bygger på B (risikosum-mønster)
+### v1.0 — Output og validering (Fase 2–3)
 
-Todo D: Stokastiske afkast (Q-mål)        ─► Todo F: Investeringsfonde & livscyklus
-             (uafhængig af A–C, kan parallelliseres)
+**Manglende output-funktioner (Fase 2)**
+- [ ] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
+- [ ] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
 
-Todo G: Risikopræmie (dødsfald, TAE, SUL) — uafhængig, kan starte nu
-```
+**Validering (Fase 3)**
+- [ ] Opret `verd/validering.py`
+- [ ] Implementer `check_sandsynligheder(fordeling)` — summer til 1.0 (tolerance 1e-9)
+- [ ] Implementer `check_p_alive_monoton(cashflows)` — `p_alive` er aftagende
+- [ ] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
 
-Anbefalet rækkefølge: **A → B → C → D → E**, **D → F**, **G** (parallel)
+**CSV og formateret output (Fase 3)**
+- [ ] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
+- [ ] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
+  - Policestamdata
+  - Nøgletal (depotværdi, V(0), sum af indbetalinger, sum af ydelser)
+  - Første og sidste 5 rækker af cashflowtabel
+- [ ] Opdater `examples/eksempel_police.py` til komplet end-to-end eksempel
 
 ---
 
-## Todo A — Finanstilsynets dødelighedsmodel
+### A — Finanstilsynets dødelighedsmodel
 
 **Baggrund**: Finanstilsynet publicerer Danmarks officielle dødelighedsmodel, som
 forsikringsselskaber anvender til hensættelsesberegning (Solvens II, IFRS 17).
@@ -62,7 +64,7 @@ intensitetstabeller med tilhørende margenbelastning og er kønsspecifik.
 
 ---
 
-## Todo B — Ophørende livrente
+### B — Ophørende livrente
 
 **Baggrund**: En ophørende livrente (ren livslivrente) ophører ved pensionstagets død —
 der er ingen efterladtedækning. Til gengæld får pensionstageren *dødelighedsgevinster*:
@@ -96,14 +98,14 @@ Adskilles fra den nuværende model, der implicit behandler livrenten som garante
 
 ---
 
-## Todo C — Ratepension til efterladte ved død efter pensionering
+### C — Ratepension til efterladte ved død efter pensionering
 
 **Baggrund**: Ved pensionstagets død *efter* pensionsstart fortsætter ratepensionsudbetalingerne
 til efterladte i den resterende rateperiode (garanteret ydelse). Det modelleres via
 risikosummen i Thiele-leddet for I_LIVE → DOED: `R_ratepension = PV(resterende rater)`.
-Modsætningsvis er den ophørende livrente (Todo B) *uden* efterladtedækning.
+Modsætningsvis er den ophørende livrente (B) *uden* efterladtedækning.
 
-**Afhængigheder**: Bygger på risikosum-mønstret etableret i **Todo B**.
+**Afhængigheder**: Bygger på risikosum-mønstret etableret i **B**.
 
 **Opgaver**:
 - [ ] Tilføj `ratepension_til_efterladte: bool = True` på `Policy`
@@ -114,7 +116,7 @@ Modsætningsvis er den ophørende livrente (Todo B) *uden* efterladtedækning.
   - `R_ratepension = V_ratepension + PV` (depot + nutidsværdi af fremtidige garanterede rater)
   - `R_aldersopsparing = R_livrentedepot = 0`
   - Ellers (uden for rateperioden eller opsparingsfase): alle nul
-- [ ] Kombinér med `ophørende_livrente_risikosum` (Todo B) til én samlet `risikosum_funktion`
+- [ ] Kombinér med `ophørende_livrente_risikosum` (B) til én samlet `risikosum_funktion`
   der håndterer begge produkter
 - [ ] Tilføj `examples/eksempel_efterladte.py`:
   - Vis cashflows til pensionstageren (in-life) + forventede efterladteydelser
@@ -129,7 +131,7 @@ Modsætningsvis er den ophørende livrente (Todo B) *uden* efterladtedækning.
 
 ---
 
-## Todo D — Stokastiske afkast under Q-mål
+### D — Stokastiske afkast under Q-mål
 
 **Baggrund**: Q-målet (det risikoneutrale sandsynlighedsmål) bruges til
 markedsværdi-hensættelser (IFRS 17, Solvens II Best Estimate). Under Q er det forventede
@@ -169,16 +171,15 @@ ny `verd/monte_carlo.py`, `verd/__init__.py`
 
 ---
 
-## Todo E — Portefølje: til- og afgang af policer
+### E — Portefølje: til- og afgang af policer
 
 **Baggrund**: I en portefølje tilkommer nye policer (nytegning) og eksisterende policer
 afgår (død, genkøb, fripolice, pensionering). Hvert event medfører tilhørende omkostninger
 (tegningsgebyr, genkøbsomkostning, fripoliceomkostning) og ændrer porteføljens samlede
-cashflow. Dette er et spring fra enkeltpoliceniveau til portføljeniveau — kræver fuld
-modellering af enkeltpolicen (Todo A+B+C) inden implementering.
+cashflow.
 
-**Afhængigheder**: Kræver **Todo A** (korrekt dødelighedsmodel) + **Todo B** (livrente-type)
-+ **Todo C** (efterladtedækning) — dvs. fuld enkeltpolicemodel på plads.
+**Afhængigheder**: Kræver **A** (korrekt dødelighedsmodel) + **B** (livrente-type)
++ **C** (efterladtedækning) — dvs. fuld enkeltpolicemodel på plads.
 
 **Opgaver**:
 - [ ] Definér `AfgangAarsag(enum)` i `verd/portefolje.py`:
@@ -196,7 +197,7 @@ modellering af enkeltpolicen (Todo A+B+C) inden implementering.
 - [ ] Implementér `fremregn_portefolje(portefolje, t_start, t_slut, dt, market, ...) → PortefoeljeFremregning`:
   - Kør `fremregn()` per aktiv police i perioden
   - Aggregér `indbetaling_dkk`, `udbetaling_dkk`, `omkostning_dkk` på tværs af policer per tidsstep
-  - Inkludér hændelsesomkostninger (`tegnings-` og `afgangsomkostning`) i `omkostning_dkk`
+  - Inkludér hændelsesomkostninger i `omkostning_dkk`
   - Returnér `PortefoeljeFremregning` med aggregerede tidsserier + hændelseslog
 - [ ] Definér `PortefoeljeFremregning(dataclass)`:
   - `skridt: list[dict]` — aggregerede cashflows per tidsstep
@@ -217,13 +218,13 @@ modellering af enkeltpolicen (Todo A+B+C) inden implementering.
 
 ---
 
-## Todo F — Investeringsfonde og Livscyklusprodukter
+### F — Investeringsfonde og livscyklusprodukter
 
 **Baggrund**: Et markedsrenteprodukt investeres typisk i en portefølje af fonde med
 forskellige risikoprofiler. Kunden vælger et livscyklusprodukt — én af 4 profiler
 (fx Høj, Mellem-høj, Mellem-lav, Lav) — der bestemmer, hvordan opsparingen fordeles
 mellem fondene, og hvordan fordelingen nedtrappes automatisk jo tættere kunden er på
-pension (svarende til PFAs "indbygget nedtrapning af risiko i alle profiler").
+pension.
 
 **Teoretisk begrundelse for risikonedskalering**:
 Under CRRA-nytte (power utility) er den optimale andel investeret i risikofyldte aktiver
@@ -238,13 +239,10 @@ hvor:
 - `HK(t)` = humankapital = diskonteret nutidsværdi af fremtidig løn ved tidspunkt `t`
 - `V_finansiel(t)` = depotværdi
 
-Da humankapitalen falder med alderen (den resterende lønhorisont skrumper), vil
-`w_risiko(t)` falde over tid — selv om `γ` er konstant. Dette giver den teoretiske
-motivation for at alle 4 livscyklusprofiler nedtrapper eksponeringen mod risikofyldte
-aktiver. Profilerne adskiller sig ved valget af `γ` (dvs. graden af risikovillighed).
+Da humankapitalen falder med alderen, vil `w_risiko(t)` falde over tid — selv om `γ` er konstant.
 
-**Afhængigheder**: Bygger på **Todo D** (`BlackScholesMarked`) for stokastisk modellering
-af hvert fonds afkast. Flerfonds-udvidelsen af `FinancialMarket` etableres her.
+**Afhængigheder**: Bygger på **D** (`BlackScholesMarked`) for stokastisk modellering
+af hvert fonds afkast.
 
 **Opgaver**:
 - [ ] Definér `InvesteringsFond(dataclass)` i `verd/investeringsfond.py`:
@@ -256,8 +254,8 @@ af hvert fonds afkast. Flerfonds-udvidelsen af `FinancialMarket` etableres her.
       volatilitet: float        # årlig standardafvigelse
   ```
 - [ ] Definér `FondsUnivers(dataclass)` i `verd/investeringsfond.py`:
-  - `fonde: list[InvesteringsFond]` — 3–5 fonde (fx aktier høj, aktier lav, obligationer, kreditobligationer, pengemarked)
-  - `korrelationsmatrix: np.ndarray` — (n×n) korrelationsmatrix mellem fondene
+  - `fonde: list[InvesteringsFond]` — 3–5 fonde
+  - `korrelationsmatrix: np.ndarray` — (n×n)
   - Valideringsmetode: kontrollér at matrix er positiv semidefinit og symmetrisk
 - [ ] Implementér `LivescyklusProfil(dataclass)` i `verd/livescyklus.py`:
   ```python
@@ -267,18 +265,14 @@ af hvert fonds afkast. Flerfonds-udvidelsen af `FinancialMarket` etableres her.
       gamma: float                     # Merton-andel (CRRA risikoaversion)
       glide_path: Callable[[float, float], dict[str, float]]
       # glide_path(alder, aar_til_pension) → {fond_navn: vægt}
-      # Vægte summerer til 1.0
   ```
-- [ ] Implementér 4 standardprofiler i `verd/livescyklus.py` med parametriserede glide-paths:
-  - Nedtrapning aktiveres typisk 15–20 år før pension
-  - Alle profiler ender i samme lav-risiko allokering ved pensionering
-  - Profilerne adskiller sig i startallokering (styret af `γ`)
+- [ ] Implementér 4 standardprofiler med parametriserede glide-paths
 - [ ] Implementér `humankapital(alder, pensionsalder, loen, diskonteringsrente) → float`
   i `verd/humankapital.py`:
   - `HK(t) = loen · ä_{pensionsalder - alder}` (sikker annuitet over resterende arbejdsliv)
 - [ ] Implementér `MultiFondsMarked(FinancialMarket)` i `verd/multi_fonds_marked.py`:
   - Indeholder `FondsUnivers` + `LivescyklusProfil`
-  - Beregner porteføljeafkast som vægtet gennemsnit af fondsafkast per tidsstep
+  - Beregner porteføljeafkast som vægtet gennemsnit per tidsstep
   - Implementerer `simuler_sti` via Cholesky-dekomponeret korrelationsmatrix
 - [ ] Tilføj `examples/eksempel_livescyklus.py`:
   - Plot fondsvægtning over tid for alle 4 profiler (alder 30 → 70)
@@ -286,7 +280,7 @@ af hvert fonds afkast. Flerfonds-udvidelsen af `FinancialMarket` etableres her.
 - [ ] Unit-tests i `tests/test_livescyklus.py`:
   - [ ] Fondsværgte summerer til 1.0 for alle aldre og alle 4 profiler
   - [ ] Nedtrapning er monoton: aktieandel faldende jo tættere på pension
-  - [ ] `humankapital(pensionsalder, pensionsalder, ...) == 0.0` (ingen resterende arbejdsliv)
+  - [ ] `humankapital(pensionsalder, pensionsalder, ...) == 0.0`
   - [ ] Porteføljeafkast ≈ vægtet gennemsnit af fondsafkast (ved 0-korrelation og deterministisk)
   - [ ] `MultiFondsMarked` med én fond og 0 volatilitet = `DeterministicMarket`
 
@@ -295,7 +289,7 @@ ny `verd/humankapital.py`, ny `verd/multi_fonds_marked.py`, `verd/__init__.py`
 
 ---
 
-## Todo G — Risikopræmie for rene risikoprodukter (dødsfald, TAE, SUL)
+### G — Risikopræmie for rene risikoprodukter (dødsfald, TAE, SUL)
 
 **Baggrund**: Ud over opsparingen dækker en pensionspolice typisk rene risikoprodukter:
 - **Dødsfald**: udbetaling til efterladte ved død
@@ -303,23 +297,16 @@ ny `verd/humankapital.py`, ny `verd/multi_fonds_marked.py`, `verd/__init__.py`
 - **SUL** (Sum ved Ulykkestilfælde/Livstruende sygdom): engangsudbetaling ved kritisk sygdom
 
 Disse dækninger finansieres via en **risikopræmie** der fratrækkes præmien, *inden*
-den resterende nettopræmie fordeles på de tre opsparingsprodukter (aldersopsparing,
-ratepensionsopsparing, livrentedepot). I første omgang modelleres risikopræmien som
-et fast beløb uafhængigt af alder, køn og helbredstilstand.
+den resterende nettopræmie fordeles på de tre opsparingsprodukter.
 
-**Afhængigheder**: Ingen — kan starte parallelt med alle andre todos.
+**Afhængigheder**: Ingen — kan starte parallelt med alle andre.
 
 **Modellering**:
-Bruttoindbetalingen `π_brutto` splittes ved hvert tidsstep:
-
 ```
 π_netto(t) = π_brutto(t) − risikopraemie_pr_maaned
-
 risikopraemie_pr_maaned = risikopraemie_aarlig / 12
 ```
-
-`π_netto` fordeles herefter på de tre depoter efter de sædvanlige allokeringsregler.
-Hvis `π_netto < 0` (risikopræmie overstiger indbetalingen) trækkes differencen fra depottet.
+Hvis `π_netto < 0` trækkes differencen fra depottet.
 
 **Opgaver**:
 - [ ] Tilføj `RisikoDaekning(dataclass)` i `verd/risiko.py`:
@@ -327,7 +314,7 @@ Hvis `π_netto < 0` (risikopræmie overstiger indbetalingen) trækkes difference
   @dataclass
   class RisikoDaekning:
       navn: str                        # fx "Dødsfald", "TAE", "SUL"
-      aarlig_praemie_dkk: float        # fast beløb, default per dækning
+      aarlig_praemie_dkk: float
   ```
 - [ ] Tilføj `RisikoBundle(dataclass)` i `verd/risiko.py`:
   - `daekninger: list[RisikoDaekning]`
@@ -358,22 +345,15 @@ Hvis `π_netto < 0` (risikopræmie overstiger indbetalingen) trækkes difference
 
 ---
 
-## Todo H — Stresstesting af antagelser
+### H — Stresstesting af antagelser
 
-**Baggrund**: I praksis ønsker aktuar at vurdere følsomheden af cashflows og reserver
+**Baggrund**: Aktuar ønsker at vurdere følsomheden af cashflows og reserver
 over for ændringer i centrale antagelser — typisk dødelighedsintensiteten (`µ(x)`),
-afkastraten (`r`), indbetalingsprocenten eller omkostningssatser. Et stresstest-framework
-skal gøre det nemt at køre den samme fremregning under to eller flere antagelsessæt og
-sammenligne resultaterne — fx det aggregerede cashflow for en bestand af policer under
-henholdsvis "base"-dødelighedsintensitet og en "stresset" version (fx `µ_stress(x) = 1.2 · µ(x)`),
-eller med forhøjede administrationsomkostninger.
+afkastraten (`r`), indbetalingsprocenten eller omkostningssatser.
 
-**Afhængigheder**: Bygger på `fremregn()` (Fase 2) og evt. `fremregn_portefolje()` (Todo E).
-Kan implementeres gradvist: simpel enkeltpolicestress før porteføljestress.
+**Afhængigheder**: Bygger på `fremregn()` (Fase 2) og evt. `fremregn_portefolje()` (E).
 
 **Modellering**:
-En "stresset" `BiometricModel` er blot en wrapper der skalerer intensiteten:
-
 ```python
 @dataclass
 class SkaleretBiometricModel(BiometricModel):
@@ -382,38 +362,170 @@ class SkaleretBiometricModel(BiometricModel):
 
     def mortality_intensity(self, alder: float) -> float:
         return self.skaleringsfaktor * self.base_model.mortality_intensity(alder)
-```
 
-Et `Scenarie` samler alle de antagelser der varieres på tværs af kørsler:
-
-```python
 @dataclass
 class Scenarie:
     navn: str
     biometric_model: BiometricModel
     financial_market: FinancialMarket
     omkostningssats_overrides: dict[str, float] | None = None
-    # Nøgle: OmkostningssatsID, værdi: ny sats — øvrige satser er uændrede
 ```
 
 **Opgaver**:
 - [ ] Implementér `SkaleretBiometricModel` i `verd/stresstest.py`
 - [ ] Implementér `Scenarie(dataclass)` i `verd/stresstest.py`
-  - `navn: str`, `biometric_model: BiometricModel`, `financial_market: FinancialMarket`,
-    `omkostningssats_overrides: dict[str, float] | None = None`
 - [ ] Implementér `sammenlign_scenarier(policer, scenarier, t_start, t_slut, dt) → dict[str, pd.DataFrame]`
-  - Kør `fremregn()` (eller `fremregn_portefolje()`) per scenarie
-  - Returnér dict `{scenarie_navn: cashflow_dataframe}` — nemt at sende til plot
+  - Kør `fremregn()` per scenarie
+  - Returnér dict `{scenarie_navn: cashflow_dataframe}`
 - [ ] Tilføj `examples/eksempel_stresstest.py`:
-  - Definér en bestand af 3–5 policer med varierende alder og depot
-  - Kør tre scenarier: `Base`, `DødelighedStress` (`1.2 · µ(x)`), `OmkostningsStress` (forhøjede adm.-satser)
+  - 3–5 policer med varierende alder og depot
+  - Tre scenarier: `Base`, `DødelighedStress` (`1.2 · µ(x)`), `OmkostningsStress`
   - Print aggregeret cashflow-tabel side om side
-  - Plot forskel i forventet udbetaling og omkostninger over tid
 - [ ] Unit-tests i `tests/test_stresstest.py`:
   - [ ] `SkaleretBiometricModel(model, 1.0)` giver identiske cashflows som `model`
-  - [ ] `SkaleretBiometricModel(model, 1.2)` giver højere forventet dødsudbetaling end `model`
+  - [ ] `SkaleretBiometricModel(model, 1.2)` giver højere forventet dødsudbetaling
   - [ ] Omkostningsstress: forhøjet sats øger samlede omkostninger monotont
   - [ ] `sammenlign_scenarier` returnerer én nøgle per scenarie
   - [ ] Alle DataFrames har identiske tidskolonner (samme tidsakse)
 
 **Berørte filer**: ny `verd/stresstest.py`, `verd/__init__.py`
+
+---
+
+## Bug
+
+*(ingen kendte)*
+
+---
+
+## Refactor
+
+*(ingen planlagte)*
+
+---
+
+## Test
+
+### v1.0 — Fase 1b: Unit tests for eksisterende klasser
+
+Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`, `P₀=100.0`
+
+**Referenceberegninger (håndberegnede facit)**
+
+| Beregning | Formel | Facit |
+|---|---|---|
+| µ(40) | 0.0005 + 0.00004·exp(0.09·40) | **0.00196393 år⁻¹** |
+| µ(50) | 0.0005 + 0.00004·exp(0.09·50) | **0.00410068 år⁻¹** |
+| µ(60) | 0.0005 + 0.00004·exp(0.09·60) | **0.00935625 år⁻¹** |
+| p(40, 1/12) | exp(−0.00196393/12) | **0.99983637** |
+| q(40, 1/12) | 1 − p | **0.00016363** |
+| enhedspris(1) | 100·exp(0.05) | **105.12710964 DKK/enh.** |
+| depotværdi | 2500 enh. × 100 DKK/enh. | **250.000,00 DKK** |
+| DKK→enh. | 10.000 DKK / 100 DKK/enh. | **100,0000 enh.** |
+| Månedlig præmie | 600.000 × 0,15 / 12 | **7.500,00 DKK/md.** |
+| Præmie i enh. (t=0) | 7.500 / 100 | **75,0000 enh./md.** |
+
+- [ ] `tests/test_policy_state.py`
+  - [ ] `PolicyState` har præcis `I_LIVE` og `DOED`
+  - [ ] Enum-værdier er strings (`"I_LIVE"`, `"DOED"`)
+
+- [ ] `tests/test_policy.py`
+  - [ ] `total_enheder()` returnerer sum af de tre depoter
+  - [ ] `depotvaerdi_dkk(100.0)` = `total_enheder()` × 100
+  - [ ] `depotvaerdi_dkk` er ikke et gemt felt (verificer med `dataclasses.fields()`)
+  - [ ] `tilstand` defaulter til `PolicyState.I_LIVE`
+  - [ ] `depotvaerdi_dkk(0.0)` = 0.0 (zero-enhedspris edge case)
+
+- [ ] `tests/test_policy_distribution.py`
+  - [ ] `initial_distribution(police)` returnerer liste med præcis ét element
+  - [ ] Sandsynlighed i initial distribution = 1.0
+  - [ ] Sandsynligheder summer til 1.0
+
+- [ ] `tests/test_gompertz_makeham.py`
+  - [ ] `mortality_intensity(40)` matcher facit 0.00196393 (tolerance 1e-8)
+  - [ ] `mortality_intensity(50)` matcher facit 0.00410068 (tolerance 1e-8)
+  - [ ] `mortality_intensity(60)` matcher facit 0.00935625 (tolerance 1e-8)
+  - [ ] `mortality_intensity(x) >= 0` for x ∈ {0, 20, 40, 60, 80, 100}
+  - [ ] `mortality_intensity` er monotont stigende (intensitet ved 50 > intensitet ved 40)
+  - [ ] `survival_probability(40, 1/12)` matcher facit 0.99983637 (tolerance 1e-8)
+  - [ ] `death_probability(40, 1/12)` matcher facit 0.00016363 (tolerance 1e-8)
+  - [ ] `survival_probability + death_probability = 1.0` præcist
+
+- [ ] `tests/test_deterministic_market.py`
+  - [ ] `enhedspris(0)` = `enhedspris_0` (100.0)
+  - [ ] `enhedspris(1)` matcher facit 105.12710964 (tolerance 1e-6)
+  - [ ] `enhedspris(t) > enhedspris(0)` for t > 0 og r > 0
+  - [ ] Round-trip: `dkk_til_enheder(X, t) × enhedspris(t)` = X (tolerance 1e-10)
+  - [ ] Round-trip: `enheder_til_dkk(dkk_til_enheder(X, t), t)` = X (tolerance 1e-10)
+  - [ ] `dkk_til_enheder(10000, 0)` = 100.0 (matcher facit)
+
+---
+
+### v1.0 — Fase 2–3: Cashflow- og valideringstests
+
+- [ ] `tests/test_cashflow.py`
+  - [ ] Månedlig præmie = 600.000 × 0,15 / 12 = 7.500,00 DKK (matcher facit)
+  - [ ] Præmie i enheder (t=0, P₀=100) = 75,0 enh. (matcher facit)
+  - [ ] `p_alive` starter på 1.0 og er strengt aftagende
+  - [ ] `p_alive` er altid ∈ [0, 1]
+  - [ ] Sandsynlighedsvægtede cashflows ≤ uvægtede cashflows
+  - [ ] Cashflow-liste er ikke tom
+  - [ ] Første skridt: `t ≈ 0`, `p_alive = 1.0`
+  - [ ] Verificer første 3 måneders `indbetaling_enheder` mod håndberegnet facit
+  - [ ] Ved opsparingsfase: `udbetaling_dkk = 0` på alle rækker
+
+- [ ] `tests/test_validering.py`
+  - [ ] `check_sandsynligheder` kaster `ValueError` hvis sum ≠ 1.0
+  - [ ] `check_p_alive_monoton` kaster `ValueError` ved stigende p_alive
+  - [ ] CSV-eksport producerer velformet fil med korrekte kolonnenavne
+  - [ ] End-to-end: `standard_police` → cashflows → alle checks → ingen undtagelser
+
+---
+
+### v1.0 — Fase 4: Facittests og edge cases
+
+**Håndberegnet faciteksempel**:
+3-årig ren aldersopsparing — starttilstand: 1.000 enh. × 100 DKK/enh. = 100.000 DKK —
+parametre: r=0.05, alpha=0.0005, beta=0.00004, sigma=0.09, alder=40, dt=1/12
+
+- [ ] `tests/test_facit.py`:
+  - [ ] µ(40) = 0.00196393 (tolerance 1e-8)
+  - [ ] µ(50) = 0.00410068 (tolerance 1e-8)
+  - [ ] µ(60) = 0.00935625 (tolerance 1e-8)
+  - [ ] p(40, 1/12) = 0.99983637 (tolerance 1e-8)
+  - [ ] enhedspris(1) = 105.12710964 (tolerance 1e-6)
+  - [ ] Månedlig præmie for standardpolicen = 7.500,00 DKK (eksakt)
+  - [ ] `V(0)` for nulcashflow-policen = `depotvaerdi_dkk` (tolerance 1e-4)
+  - [ ] Første måneds `indbetaling_enheder` = håndberegnet facit (tolerance 1e-8)
+  - [ ] Første måneds `risikopraemie_enheder` = håndberegnet facit (tolerance 1e-8)
+
+- [ ] Edge cases:
+  - [ ] Police med alle depoter = 0.0 → `depotvaerdi_dkk` = 0.0
+  - [ ] Police med `er_under_udbetaling = True` fra starten → ingen indbetalinger
+  - [ ] `ratepensionsvarighed = 0` → ingen ratepensionsydelser
+  - [ ] Meget høj dødelighedsintensitet (alpha=1.0) → `p_alive` falder hurtigt, fremregning stopper tidligt
+  - [ ] `r = 0.0` → `enhedspris(t) = enhedspris_0` for alle t (flad kurve)
+
+---
+
+## Chore
+
+### v1.0 — Test-infrastruktur
+
+- [ ] Tilføj `pytest` til `pyproject.toml` under `[project.optional-dependencies] dev`
+- [ ] Opret `tests/` mappe med `tests/__init__.py`
+- [ ] Opret `tests/conftest.py` med delte fixtures:
+  - `standard_biometri` — `GompertzMakeham(alpha=0.0005, beta=0.00004, sigma=0.09)`
+  - `standard_marked` — `DeterministicMarket(r=0.05, enhedspris_0=100.0)`
+  - `standard_police` — aldersopsparing med loen=600.000, indbetalingsprocent=0.15
+
+### v1.0 — Dokumentation
+
+- [ ] Opret `docs/referenceberegninger.md` med facittabel og mellemregninger
+- [ ] Opret `docs/facit_eksempel.md` — komplet håndberegnet eksempel:
+  - 3-årig ren aldersopsparing
+  - Alle mellemresultater til 8 decimaler
+
+### v1.0 — CI
+
+- [ ] Opret `.github/workflows/test.yml` der kører `pytest` på push til `main`
