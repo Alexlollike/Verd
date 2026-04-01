@@ -6,19 +6,19 @@ Brug `[x]` når en opgave er færdig.
 
 ## Feature
 
-### v1.0 — Output og validering (Fase 2–3)
+### v1.0 — Output og validering ✓ FÆRDIG
 
-**Manglende output-funktioner (Fase 2)**
+**Output-funktioner**
 - [x] Implementer `til_dataframe(cashflows)` → `pandas.DataFrame` med formaterede kolonner
 - [x] Implementer `print_cashflow_tabel(cashflows, marked)` — printer de første/sidste rækker med totaler
 
-**Validering (Fase 3)**
+**Validering**
 - [x] Opret `verd/validering.py`
 - [x] Implementer `check_sandsynligheder(fordeling)` — summer til 1.0 (tolerance 1e-9)
 - [x] Implementer `check_p_alive_monoton(cashflows)` — `p_alive` er aftagende
 - [x] Implementer `kør_alle_checks(police, cashflows, marked)` — kalder alle checks, kaster `ValueError` ved fejl
 
-**CSV og formateret output (Fase 3)**
+**CSV og formateret output**
 - [x] Implementer `eksporter_cashflows_csv(cashflows, marked, filsti)` — skriver cashflow DataFrame til CSV
 - [x] Implementer `print_policeoversigt(police, cashflows, marked)` — samlet rapport til stdout:
   - Policestamdata
@@ -183,7 +183,7 @@ Modsætningsvis er den ophørende livrente (B) *uden* efterladtedækning.
 
 ---
 
-### D — Stokastiske afkast under Q-mål
+### E — Stokastiske afkast under Q-mål
 
 **Baggrund**: Q-målet (det risikoneutrale sandsynlighedsmål) bruges til
 markedsværdi-hensættelser (IFRS 17, Solvens II Best Estimate). Under Q er det forventede
@@ -223,14 +223,14 @@ ny `verd/monte_carlo.py`, `verd/__init__.py`
 
 ---
 
-### E — Portefølje: til- og afgang af policer
+### F — Portefølje: til- og afgang af policer
 
 **Baggrund**: I en portefølje tilkommer nye policer (nytegning) og eksisterende policer
 afgår (død, genkøb, fripolice, pensionering). Hvert event medfører tilhørende omkostninger
 (tegningsgebyr, genkøbsomkostning, fripoliceomkostning) og ændrer porteføljens samlede
 cashflow.
 
-**Afhængigheder**: Kræver at Fase 2–3 er afsluttede (`fremregn()` og reserveberegning klar).
+**Afhængigheder**: Kræver at `fremregn()` og reserveberegning er implementerede.
 Fungerer med enhver kombination af `BiometricModel` og produktkonfiguration — A, B og C er ikke nødvendige forudsætninger.
 
 **Opgaver**:
@@ -480,7 +480,7 @@ ny `verd/data/offentlige_satser.csv`, `verd/policy.py`, `verd/fremregning.py`, `
 over for ændringer i centrale antagelser — typisk dødelighedsintensiteten (`µ(x)`),
 afkastraten (`r`), indbetalingsprocenten eller omkostningssatser.
 
-**Afhængigheder**: Bygger på `fremregn()` (Fase 2) og evt. `fremregn_portefolje()` (E).
+**Afhængigheder**: Bygger på `fremregn()` og evt. `fremregn_portefolje()` (**E**).
 
 **Modellering**:
 ```python
@@ -535,7 +535,7 @@ class Scenarie:
 
 ## Test
 
-### ~~v1.0 — Fase 1b: Unit tests for eksisterende klasser~~ ✓ FÆRDIG
+### ~~Unit tests for eksisterende klasser~~ ✓ FÆRDIG
 
 Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`, `P₀=100.0`
 
@@ -590,7 +590,7 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 
 ---
 
-### v1.0 — Fase 2–3: Cashflow- og valideringstests
+### Cashflow- og valideringstests
 
 - [ ] `tests/test_cashflow.py`
   - [ ] Månedlig præmie = 600.000 × 0,15 / 12 = 7.500,00 DKK (matcher facit)
@@ -611,7 +611,7 @@ Parametre for alle tests: `alpha=0.0005`, `beta=0.00004`, `sigma=0.09`, `r=0.05`
 
 ---
 
-### v1.0 — Fase 4: Facittests og edge cases
+### Facittests og edge cases
 
 **Håndberegnet faciteksempel**:
 3-årig ren aldersopsparing — starttilstand: 1.000 enh. × 100 DKK/enh. = 100.000 DKK —

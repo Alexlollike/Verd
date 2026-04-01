@@ -16,14 +16,23 @@ Kør med:
 import math
 from datetime import date
 
+import matplotlib
+matplotlib.use("Agg")  # Ikke-interaktiv backend (egnet til CI/scripts)
+import matplotlib.pyplot as plt
+import pandas as pd
+
 from verd import (
+    BeloebsgraenserOpslag,
     DeterministicMarket,
     GompertzMakeham,
     Policy,
     PolicyState,
     PraemieFlow,
+    STANDARD_SATSER_FILSTI,
     fremregn,
+    indlæs_offentlige_satser,
     initial_distribution,
+    plot_fra_dataframe,
     kør_alle_checks,
     praemieflow_cashflow_funktion,
     print_policeoversigt,
@@ -62,15 +71,27 @@ fordeling = initial_distribution(police)
 tilstandsmodel = standard_toetilstands_model(biometri)
 
 # ---------------------------------------------------------------------------
+# Beløbsgrænser — slå 2026-satser op for en 46-årig (21 år til folkepension)
+# Betingelse: "normal" (>7 år til pension) → aldersopsparing_max = 9.900 DKK/år
+# ---------------------------------------------------------------------------
+satser = indlæs_offentlige_satser(STANDARD_SATSER_FILSTI)
+beloebsgraenser = BeloebsgraenserOpslag.fra_satser(
+    satser=satser,
+    aar=2026,
+    aar_til_folkepension=67 - 46,  # 46-årig i 2026 → 21 år til folkepension
+)
+
+# ---------------------------------------------------------------------------
 # Præmieallokering — fordeling af indbetalingen på de tre depoter
 # Andele sat proportionalt med de initielle depotværdier:
 #   aldersopsparing  : 120.000 / 250.000 = 0,48
 #   ratepension      :  80.000 / 250.000 = 0,32
 #   livrente (rest)  :  50.000 / 250.000 = 0,20
+# Beløbsgrænser håndhæves: overskydende beløb sendes til livrente.
 # ---------------------------------------------------------------------------
 praemieallokering = PraemieFlow(
     risiko_bundle=None,
-    beloebsgraenser=None,
+    beloebsgraenser=beloebsgraenser,
     ratepension_andel=80_000 / 250_000,
     aldersopsparing_andel=120_000 / 250_000,
 )
@@ -113,3 +134,16 @@ csv_sti = "fremregning_eksempel.csv"
 eksporter_cashflows_csv(skridt, csv_sti)
 print()
 print(f"Fremregning eksporteret til: {csv_sti}")
+
+df = pd.read_csv(csv_sti)
+
+
+fig = plot_fra_dataframe(
+    df=df,
+    titel="Depotudvikling og ydelser — aldersopsparing + ratepension + livrente",
+    pensionsalder_t=police.pensionsalder - (police.tegningsdato - police.foedselsdato).days / 365.25,
+    gem_fil="depot_udvikling.png",
+)
+
+print("Plot gemt: depot_udvikling.png")
+plt.close(fig)
