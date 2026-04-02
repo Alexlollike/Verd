@@ -35,7 +35,9 @@ def til_dataframe(skridt: list) -> "pd.DataFrame":
     Aggregerede beløb (DKK per tidsstep):
         ``indbetaling_dkk``             — indbetaling i dette tidsstep
         ``udbetaling_dkk``              — udbetaling i dette tidsstep
-        ``omkostning_dkk``              — omkostning i dette tidsstep
+        ``omkostning_dkk``              — omkostningsindtægt i dette tidsstep (trækkes fra depotet)
+        ``faktisk_udgift_dkk``          — faktisk policeudgift i dette tidsstep (trækkes ikke fra depotet)
+        ``omkostningsresultat_dkk``     — omkostningsresultat: ``omkostning_dkk - faktisk_udgift_dkk``
 
     Enhedspris:
         ``enhedspris``                  — enhedspris P(t) i DKK/enhed
@@ -97,6 +99,8 @@ def til_dataframe(skridt: list) -> "pd.DataFrame":
             "indbetaling_dkk":                s.indbetaling_dkk,
             "udbetaling_dkk":                 s.udbetaling_dkk,
             "omkostning_dkk":                 s.omkostning_dkk,
+            "faktisk_udgift_dkk":             s.faktisk_udgift_dkk,
+            "omkostningsresultat_dkk":        s.omkostning_dkk - s.faktisk_udgift_dkk,
             "enhedspris":                     s.enhedspris,
             "betinget_aldersopsparing_dkk":   betinget_ald,
             "betinget_ratepension_dkk":       betinget_rate,

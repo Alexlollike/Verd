@@ -311,6 +311,31 @@ $$c(t) = \text{aum\_rate} \cdot V_{\text{total}}(t) + \text{styk\_aar}$$
 
 Dvs. 0,5 % af samlet depotværdi per år plus 200 DKK fast per år.
 
+### Omkostningsindtægt vs. faktisk policeudgift
+
+`fremregn()` accepterer to separate omkostningsfunktioner:
+
+| Parameter | Rolle | Påvirker depot? |
+|---|---|---|
+| `omkostnings_funktion` | Omkostningsindtægt — hvad selskabet opkræver kunden | Ja (trækkes fra via Thiele) |
+| `faktisk_udgift_funktion` | Faktisk policeudgift — hvad selskabet reelt afholder | Nej (kun sporet) |
+
+Differensen eksporteres som `omkostningsresultat_dkk` i CSV/DataFrame:
+
+$$\text{omkostningsresultat}(t) = \text{omkostning\_dkk}(t) - \text{faktisk\_udgift\_dkk}(t)$$
+
+Positivt resultat betyder selskabet tjener mere end det bruger på policen i det pågældende tidsstep. Begge felter er nul i skridt ved $t_0$.
+
+Eksempel: selskabet opkræver 0,5 % AUM + 200 DKK/år, men bruger kun 0,3 % AUM + 500 DKK/år i faktiske driftsomkostninger:
+
+```python
+skridt = fremregn(
+    ...,
+    omkostnings_funktion=standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0),
+    faktisk_udgift_funktion=standard_omkostning(marked, aum_rate=0.003, styk_aar=500.0),
+)
+```
+
 ---
 
 ## 11. Validering
@@ -327,7 +352,85 @@ Funktionerne kaster `ValueError` ved overtrædelse.
 
 ---
 
-## 12. Centrale antagelser
+## 12. Visualisering og output
+
+### 12.1 Plot-funktioner
+
+To offentlige funktioner i `plot.py`:
+
+| Funktion | Input | Beskrivelse |
+|---|---|---|
+| `plot_fremregning(skridt, ...)` | `list[FremregningsSkridt]` | Plot direkte fra fremregningsresultater |
+| `plot_fra_dataframe(df, ...)` | `pd.DataFrame` (fra CSV) | Plot fra CSV indlæst med `pd.read_csv()` |
+
+Begge funktioner deler identisk layout og parametre:
+
+| Parameter | Type | Beskrivelse |
+|---|---|---|
+| `titel` | `str` | Figurtitel |
+| `pensionsalder_t` | `float \| None` | Tidspunkt (år fra tegning) for pensionsalder — markeres som stiplet linje |
+| `figsize` | `tuple[float, float]` | Figurstørrelse i tommer |
+| `gem_fil` | `str \| None` | Filsti til at gemme figuren (PNG); `None` = ikke gemt |
+| `ald_lumpsum_dkk` | `float \| None` | (Kun `plot_fra_dataframe`) — engangsudbetaling fra aldersopsparing, annoteres i ydelsespanelet |
+
+### 12.2 Panelstruktur
+
+Layoutet er **fire faste paneler** plus **ét betinget panel** for omkostningsresultat:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Panel 1 — Betingede depoter (givet I_LIVE)                      │
+│   V_d(t | I_LIVE) for hvert produkt — stacked area              │
+├─────────────────────────────────────────────────────────────────┤
+│ Panel 2 — Sandsynlighedsvægtede depoter                         │
+│   E[V_d(t)] = p(I_LIVE) · V_d(t | I_LIVE) — stacked area       │
+├─────────────────────────────────────────────────────────────────┤
+│ Panel 3 — Ydelser (DKK/år)                                      │
+│   Udbetalingsrater per produkt i udbetalingsfasen               │
+├─────────────────────────────────────────────────────────────────┤
+│ Panel 4 — Overlevelsessandsynlighed p(I_LIVE)                   │
+├─────────────────────────────────────────────────────────────────┤
+│ Panel 5 — Omkostningsresultat (kun hvis cost-data er ikke-nul)  │
+│   Kumulativ opkrævet omkostning vs. faktisk udgift              │
+│   Grøn fyld = positivt resultat; rød fyld = negativt resultat   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Panel 5 aktiveres automatisk** hvis `fremregn()` er kaldt med en `faktisk_udgift_funktion` der giver ikke-nul værdier (eller `omkostnings_funktion` er ikke-nul). Ingen kode-ændring er nødvendig i kaldende kode.
+
+### 12.3 CSV-kolonner og DataFrame-output
+
+`til_dataframe(skridt)` og `eksporter_cashflows_csv(skridt, filsti)` producerer følgende kolonner:
+
+| Kolonne | Enhed | Beskrivelse |
+|---|---|---|
+| `t` | år | Tid fra tegningsdato |
+| `alder` | år | Forsikringstagers alder |
+| `p_i_live` | — | Overlevelsessandsynlighed |
+| `indbetaling_dkk` | DKK/skridt | Indbetaling i tidssteppet |
+| `udbetaling_dkk` | DKK/skridt | Udbetaling i tidssteppet |
+| `omkostning_dkk` | DKK/skridt | Omkostningsindtægt (opkrævet, trækkes fra depot) |
+| `faktisk_udgift_dkk` | DKK/skridt | Faktisk policeudgift (sporet, påvirker ikke depot) |
+| `omkostningsresultat_dkk` | DKK/skridt | `omkostning_dkk − faktisk_udgift_dkk` |
+| `enhedspris` | DKK/enhed | Enhedspris P(t) |
+| `betinget_aldersopsparing_dkk` | DKK | Betinget depot — aldersopsparing |
+| `betinget_ratepension_dkk` | DKK | Betinget depot — ratepension |
+| `betinget_livrente_dkk` | DKK | Betinget depot — livrente |
+| `betinget_depot_dkk` | DKK | Sum af betingede depoter |
+| `forventet_aldersopsparing_dkk` | DKK | Sandsynlighedsvægtet depot — aldersopsparing |
+| `forventet_ratepension_dkk` | DKK | Sandsynlighedsvægtet depot — ratepension |
+| `forventet_livrente_dkk` | DKK | Sandsynlighedsvægtet depot — livrente |
+| `forventet_depot_dkk` | DKK | Sandsynlighedsvægtet total depot |
+| `b_aldersopsparing` | DKK/år | Cashflow-rate — aldersopsparing |
+| `b_ratepension` | DKK/år | Cashflow-rate — ratepension |
+| `b_livrente` | DKK/år | Cashflow-rate — livrente |
+| `b_omkostning` | DKK/år | Samlet omkostningsrate (= `cashflows_i_live.omkostning`) |
+
+`faktisk_udgift_dkk` og `omkostningsresultat_dkk` er nul i alle tidsstep hvis ingen `faktisk_udgift_funktion` er angivet til `fremregn()`.
+
+---
+
+## 13. Centrale antagelser
 
 | # | Antagelse | Implikation |
 |---|---|---|
@@ -343,7 +446,7 @@ Funktionerne kaster `ValueError` ved overtrædelse.
 
 ---
 
-## 13. Eksempel — Konkrete inputparametre
+## 14. Eksempel — Konkrete inputparametre
 
 ```python
 from datetime import date
@@ -413,7 +516,7 @@ kør_alle_checks(police, skridt_opsp, marked)
 
 ---
 
-## 14. Arkitektur og dataflow
+## 15. Arkitektur og dataflow
 
 ### Diagram 1 — Overordnet modulstruktur
 
@@ -501,7 +604,8 @@ flowchart TD
         VALID["**validering.py**
         kør_alle_checks()"]
         PLOT["**plot_fremregning()**
-        plot.py — 4-panel graf"]
+        plot.py — 4+1 panel graf
+        Panel 5 ved cost-data"]
         EXPORT["**til_dataframe() / CSV**
         eksportering.py"]
     end
@@ -632,7 +736,7 @@ flowchart TD
 
 ---
 
-## 15. Moduloversigt
+## 16. Moduloversigt
 
 | Fil | Indhold |
 |---|---|
@@ -658,7 +762,7 @@ flowchart TD
 
 ---
 
-## 16. Hvad er ikke med i v1.0
+## 17. Hvad er ikke med i v1.0
 
 - Stokastisk finansielt marked (rentekurve, scenariebaseret)
 - `DoedsydelsesType` — valg af dødelsydelse (DEPOT / RESTERENDE_RATER / INGEN) og den tilhørende risikosum-beregning

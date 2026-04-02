@@ -39,6 +39,7 @@ from verd import (
     eksporter_cashflows_csv,
     simpel_cashflow_funktion,
     standard_toetilstands_model,
+    standard_omkostning,
 )
 
 # ---------------------------------------------------------------------------
@@ -105,12 +106,20 @@ cashflow_funktion = simpel_cashflow_funktion(
     market=marked,
     opsparing_func=praemieflow_cashflow_funktion(praemieallokering),
 )
+# Selskabet opkræver 0,5 % AUM + 200 DKK/år (omkostningsindtægt fra kunden).
+# Faktisk driftsomkostning er lavere: 0,3 % AUM + 500 DKK/år.
+# Differensen er selskabets omkostningsresultat pr. tidsstep.
+omk_funktion = standard_omkostning(marked, aum_rate=0.005, styk_aar=200.0)
+faktisk_udgift = standard_omkostning(marked, aum_rate=0.003, styk_aar=500.0)
+
 skridt = fremregn(
     distribution=fordeling,
     antal_skridt=ANTAL_AAR * 12,
     market=marked,
     tilstandsmodel=tilstandsmodel,
     cashflow_funktion=cashflow_funktion,
+    omkostnings_funktion=omk_funktion,
+    faktisk_udgift_funktion=faktisk_udgift,
     dt=1 / 12,
     t_0=0.0,
 )
@@ -137,6 +146,16 @@ print(f"Fremregning eksporteret til: {csv_sti}")
 
 df = pd.read_csv(csv_sti)
 
+# ---------------------------------------------------------------------------
+# Omkostningsresultat — total over hele fremregningen
+# ---------------------------------------------------------------------------
+total_omk = df["omkostning_dkk"].sum()
+total_faktisk = df["faktisk_udgift_dkk"].sum()
+total_resultat = df["omkostningsresultat_dkk"].sum()
+print(f"  Omk.indkægt (total)     : {total_omk:>12,.0f} DKK")
+print(f"  Faktisk udgift (total)  : {total_faktisk:>12,.0f} DKK")
+print(f"  Omkostningsresultat     : {total_resultat:>12,.0f} DKK")
+print()
 
 fig = plot_fra_dataframe(
     df=df,

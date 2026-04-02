@@ -223,53 +223,6 @@ ny `verd/monte_carlo.py`, `verd/__init__.py`
 
 ---
 
-### F — Portefølje: til- og afgang af policer
-
-**Baggrund**: I en portefølje tilkommer nye policer (nytegning) og eksisterende policer
-afgår (død, genkøb, fripolice, pensionering). Hvert event medfører tilhørende omkostninger
-(tegningsgebyr, genkøbsomkostning, fripoliceomkostning) og ændrer porteføljens samlede
-cashflow.
-
-**Afhængigheder**: Kræver at `fremregn()` og reserveberegning er implementerede.
-Fungerer med enhver kombination af `BiometricModel` og produktkonfiguration — A, B og C er ikke nødvendige forudsætninger.
-
-**Opgaver**:
-- [ ] Definér `AfgangAarsag(enum)` i `verd/portefolje.py`:
-  `DOED | GENKOBT | FRIPOLICE | PENSIONERET | UDLOEBET`
-- [ ] Definér `PoliceHaendelse(dataclass)`:
-  - `tidspunkt: float`, `police_id: str`
-  - `type: Literal["tilgang", "afgang"]`
-  - `aarsag: AfgangAarsag | None`
-  - `omkostning_dkk: float`
-- [ ] Definér `Portefolje(dataclass)`:
-  - `policer: dict[str, PolicyDistribution]` — aktive policer
-  - `haendelser: list[PoliceHaendelse]` — komplet hændelseshistorik
-- [ ] Implementér `tilfoej_police(portefolje, police_id, police, t, tegningsomkostning_dkk) → Portefolje`
-- [ ] Implementér `afmeld_police(portefolje, police_id, t, aarsag, omkostning_dkk) → Portefolje`
-- [ ] Implementér `fremregn_portefolje(portefolje, t_start, t_slut, dt, market, ...) → PortefoeljeFremregning`:
-  - Kør `fremregn()` per aktiv police i perioden
-  - Aggregér `indbetaling_dkk`, `udbetaling_dkk`, `omkostning_dkk` på tværs af policer per tidsstep
-  - Inkludér hændelsesomkostninger i `omkostning_dkk`
-  - Returnér `PortefoeljeFremregning` med aggregerede tidsserier + hændelseslog
-- [ ] Definér `PortefoeljeFremregning(dataclass)`:
-  - `skridt: list[dict]` — aggregerede cashflows per tidsstep
-  - `haendelser: list[PoliceHaendelse]` — alle hændelser i perioden
-  - `to_dataframe() → pd.DataFrame`
-- [ ] Tilføj `examples/eksempel_portefolje.py`:
-  - 3 policer med forskellig alder og depot
-  - Én afgår ved genkøb efter 2 år (med genkøbsomkostning)
-  - En ny police tilkommer efter 1 år
-  - Print aggregeret cashflow-tabel over 5 år
-- [ ] Unit-tests i `tests/test_portefolje.py`:
-  - [ ] Aggregeret reserve = sum af individuelle reserver (linearitet)
-  - [ ] Hændelsesomkostninger dukker op korrekt i `omkostning_dkk` det rette tidsstep
-  - [ ] Afgået police bidrager ikke til cashflows efter afgangstidspunktet
-  - [ ] `Portefolje` med én police = enkelt `fremregn()` (konsistenscheck)
-
-**Berørte filer**: ny `verd/portefolje.py`, `verd/omkostning.py`, `verd/__init__.py`
-
----
-
 ### F — Investeringsfonde og livscyklusprodukter
 
 **Baggrund**: Et markedsrenteprodukt investeres typisk i en portefølje af fonde med
@@ -341,7 +294,7 @@ ny `verd/humankapital.py`, ny `verd/multi_fonds_marked.py`, `verd/__init__.py`
 
 ---
 
-### G — Præmieflow: risikodækninger og allokeringsalgoritme
+### G — Præmieflow: risikodækninger og allokeringsalgoritme ✓ FÆRDIG
 
 **Baggrund**: Bruttoindbetalingen gennemløber to transformationer, inden den rammer
 opsparingsdepotterne:
@@ -518,6 +471,126 @@ class Scenarie:
   - [ ] Alle DataFrames har identiske tidskolonner (samme tidsakse)
 
 **Berørte filer**: ny `verd/stresstest.py`, `verd/__init__.py`
+
+---
+
+### I — Bestandsfremregning via repræsentative policer
+
+**Baggrund**: I praksis administrerer et pensionsselskab bestande på hundredvis eller
+tusindvis af policer. Det er uoverkommeligt at fremregne dem individuelt — i stedet
+beregnes 15–20 *repræsentative policer* (typisk varierende alder, depotstr, køn),
+der gemmes som CSV-filer via `eksporter_cashflows_csv()`. En hel bestand fremregnes
+derefter ved at skalere og aggregere disse repræsentative cashflows.
+
+Til- og afgang af policer sker på *bestandsniveau*: brugeren angiver eksplicit planlagte
+transaktioner (fx "500 policer ind d. 1/1-2027, 120 ud d. 1/7-2028"). I forbindelse med
+til- og afgang er der direkte omkostninger og indtægter:
+- **Udgift ved tilgang**: godtgørelse for genkøbsgebyrer til det *afgivende* selskab
+  (vi betaler for at overtage policerne)
+- **Indtægt ved afgang**: genkøbsgebyr fra forsikringstagere der forlader os
+
+**Afhængigheder**: Kræver kun at `eksporter_cashflows_csv()` (v1.0) er implementeret.
+Er uafhængig af F, G, H.
+
+**Arkitektur — dataflow**:
+```
+1. Bruger kører fremregn() på 15–20 repr. policer → gemmer CSV-filer
+2. Bruger definerer FordelingNøgle: {repr_id → andel}  (summer til 1.0)
+3. Bruger definerer BestandTransaktioner: [(t, ind/ud, antal, gebyr_pr_police)]
+4. aggreger_bestand_cashflows() skalerer repr. cashflows × aktiv_bestand(t) × andel
+5. Genkøbsgebyrer bookes som separate poster på transaktionstidspunktet
+```
+
+**Modellering**:
+```python
+@dataclass
+class FordelingNøgle:
+    """Andel af den samlede bestand der repræsenteres af hver repr. police."""
+    fordeling: dict[str, float]   # {repr_police_id → andel} — summer til 1.0
+
+@dataclass
+class BestandTransaktion:
+    tidspunkt: float                    # år (fx 2.0 = 2 år fra t=0)
+    type: Literal["ind", "ud"]
+    antal: int                          # antal policer der tilkommer/afgår
+    gebyr_pr_police_dkk: float          # udgift (ind) eller indtægt (ud) per police
+
+@dataclass
+class Bestand:
+    bestand_id: str
+    start_antal: int                    # antal aktive policer ved t=0
+    transaktioner: list[BestandTransaktion]
+    fordeling: FordelingNøgle
+    repr_cashflow_stier: dict[str, Path]  # {repr_police_id → sti til CSV-fil}
+```
+
+Aktiv bestandsstørrelse på tidspunkt `t`:
+```
+aktiv_antal(t) = start_antal
+              + Σ_{transaktion.type=="ind", transaktion.tidspunkt <= t} transaktion.antal
+              − Σ_{transaktion.type=="ud",  transaktion.tidspunkt <= t} transaktion.antal
+```
+
+Skaleret cashflow for repr. police `r` på tidspunkt `t`:
+```
+cashflow_r(t) × aktiv_antal(t) × fordeling[r]
+```
+
+**Opgaver**:
+
+*Datastrukturer — `verd/bestand.py`*:
+- [ ] Implementér `FordelingNøgle(dataclass)` med valideringsmetode:
+  - `valider()`: kaster `ValueError` hvis andelene ikke summerer til 1.0 (tolerance 1e-6)
+  - `valider()`: kaster `ValueError` hvis en `repr_police_id` ikke har positiv andel
+- [ ] Implementér `BestandTransaktion(dataclass)` med felterne ovenfor
+- [ ] Implementér `Bestand(dataclass)` med felterne ovenfor
+- [ ] Implementér `aktiv_antal(bestand, t) → int`:
+  - Startantal + sum af indgange − sum af udgange for alle transaktioner med `tidspunkt ≤ t`
+  - Kaster `ValueError` hvis resultatet er negativt
+
+*CSV-indlæsning — `verd/bestand.py`*:
+- [ ] Implementér `indlæs_repr_cashflows(bestand) → dict[str, pd.DataFrame]`:
+  - Indlæser CSV-filerne angivet i `bestand.repr_cashflow_stier`
+  - Kaster `FileNotFoundError` med præcis fejlmeddelelse hvis en sti ikke eksisterer
+  - Verificerer at alle DataFrames har samme tidskolonne (samme tidsgitter)
+
+*Aggregering — `verd/bestand.py`*:
+- [ ] Implementér `aggreger_bestand_cashflows(bestand) → pd.DataFrame`:
+  - Indlæser repr. cashflows via `indlæs_repr_cashflows`
+  - Per tidsstep `t`: aggregeret cashflow = Σ_r `cashflow_r(t) × aktiv_antal(t) × fordeling[r]`
+  - Monetære kolonner skaleres (indbetaling, udbetaling, reserve, omkostning)
+  - `p_alive` skaleres *ikke* (er en sandsynlighed, ikke et beløb)
+  - Returnér `pd.DataFrame` med samme kolonner som enkeltpolicens cashflow-output
+- [ ] Implementér `beregn_transaktionsomkostninger(bestand) → pd.DataFrame`:
+  - Per transaktion: `udgift = antal × gebyr_pr_police_dkk` (positivt = udgift) ved `type=="ind"`
+  - Per transaktion: `indtægt = antal × gebyr_pr_police_dkk` (positivt = indtægt) ved `type=="ud"`
+  - Returnér DataFrame med kolonner `tidspunkt`, `type`, `antal`, `netto_dkk`
+    (`netto_dkk` er negativ for udgifter, positiv for indtægter)
+- [ ] Implementér `samlet_cashflow(bestand) → pd.DataFrame`:
+  - Kombinerer `aggreger_bestand_cashflows` og `beregn_transaktionsomkostninger`
+  - Transaktionsomkostninger tilføjes til `omkostning_dkk`-kolonnen på det rette tidsstep
+  - Returnér komplet cashflow-tabel klar til output
+
+*Eksempel og tests*:
+- [ ] Tilføj `examples/eksempel_bestand.py`:
+  - Kør `fremregn()` på 3 repr. policer (alder 35, 45, 55) og gem som CSV
+  - Definer `FordelingNøgle`: {35-årig: 0.40, 45-årig: 0.35, 55-årig: 0.25}
+  - Definer `Bestand` med 500 start-policer og to planlagte transaktioner:
+    - t=2.0: 200 policer ind, gebyr = 1.500 kr/police (godtgørelse til afgivende selskab)
+    - t=4.0: 120 policer ud, gebyr = 800 kr/police (genkøbsgebyr vi modtager)
+  - Print aggregeret cashflow-tabel over 7 år med transaktionsomkostninger synlige
+  - Vis: aktiv bestandsstørrelse over tid
+- [ ] Unit-tests i `tests/test_bestand.py`:
+  - [ ] `aktiv_antal(bestand, t)` returnerer korrekt antal ved t=0, t=2.0, t=4.0, t=7.0
+  - [ ] `aktiv_antal` kaster `ValueError` hvis antal falder under nul
+  - [ ] `FordelingNøgle.valider()` kaster `ValueError` hvis andele ikke summerer til 1.0
+  - [ ] Aggregeret indbetaling ved t=0 = enkelt repr. cashflow × start_antal × andel
+  - [ ] `p_alive`-kolonnen i aggregeret output er uændret i forhold til repr. police
+  - [ ] Transaktionsomkostning ved t=2.0 = 200 × 1.500 = 300.000 kr (udgift, negativ)
+  - [ ] Transaktionsindtægt ved t=4.0 = 120 × 800 = 96.000 kr (positiv)
+  - [ ] `FordelingNøgle` med én repr. police og andel 1.0: aggregeret = enkelt cashflow × antal
+
+**Berørte filer**: ny `verd/bestand.py`, `verd/__init__.py`
 
 ---
 

@@ -99,6 +99,12 @@ class FremregningsSkridt:
         Samlet udbetalt beløb fra I_LIVE-tilstanden i dette tidsstep (DKK).
     omkostning_dkk:
         Samlet omkostning fra I_LIVE-tilstanden i dette tidsstep (DKK).
+        Trækkes fra depotet via Thiele-ligningen.
+    faktisk_udgift_dkk:
+        Faktisk policeudgift for selskabet i dette tidsstep (DKK).
+        Spores separat — trækkes **ikke** fra depotet.
+        Bruges til P&L-analyse: ``omkostningsresultat = omkostning_dkk - faktisk_udgift_dkk``.
+        Er nul hvis ingen ``faktisk_udgift_funktion`` er angivet til ``fremregn()``.
     enhedspris:
         Enhedspris P(t) på tidspunkt t (DKK/enhed).
     """
@@ -109,6 +115,7 @@ class FremregningsSkridt:
     indbetaling_dkk: float
     udbetaling_dkk: float
     omkostning_dkk: float
+    faktisk_udgift_dkk: float
     enhedspris: float
     cashflows_i_live: CashflowSats = field(default_factory=CashflowSats)
 
@@ -300,6 +307,7 @@ def fremregn(
     tilstandsmodel: Tilstandsmodel,
     cashflow_funktion: CashflowFunktion = simpel_opsparings_cashflow,
     omkostnings_funktion: OmkostningsFunktion = nul_omkostning,
+    faktisk_udgift_funktion: OmkostningsFunktion = nul_omkostning,
     dt: float = 1.0 / 12.0,
     t_0: float = 0.0,
 ) -> list[FremregningsSkridt]:
@@ -334,7 +342,13 @@ def fremregn(
     omkostnings_funktion:
         ``(Policy, t) → float`` — samlet omkostningssats i DKK/år (AUM + styk + øvrige).
         Lægges oven på ``cashflow_funktion``s eventuelle ``omkostning``-felt.
+        Trækkes fra depotet via Thiele-ligningen (omkostningsindtægt for selskabet).
         Standard: ``nul_omkostning`` (ingen ekstra omkostninger).
+    faktisk_udgift_funktion:
+        ``(Policy, t) → float`` — faktisk policeudgift i DKK/år for selskabet.
+        Trækkes **ikke** fra depotet — kun sporet i ``FremregningsSkridt.faktisk_udgift_dkk``
+        til P&L-analyse (omkostningsresultat = ``omkostning_dkk - faktisk_udgift_dkk``).
+        Standard: ``nul_omkostning`` (nul faktisk udgift).
     dt:
         Tidsstep i år. Standard: 1/12 (månedligt).
     t_0:
@@ -406,6 +420,7 @@ def fremregn(
             indbetaling_dkk=0.0,
             udbetaling_dkk=0.0,
             omkostning_dkk=0.0,
+            faktisk_udgift_dkk=0.0,
             enhedspris=market.enhedspris(t),
         )
     ]
@@ -475,6 +490,13 @@ def fremregn(
             )
             nye_probs[tilstand] = p_i + dt * (ind - ud)
 
+        # ---- Beregn faktisk udgift for I_LIVE (spores, påvirker ikke depot) --
+        il_pol_tuple = tilstands_dict.get(PolicyState.I_LIVE)
+        if il_pol_tuple is not None:
+            total_faktisk_udgift = faktisk_udgift_funktion(il_pol_tuple[0], t) * dt
+        else:
+            total_faktisk_udgift = 0.0
+
         # ---- Opdater tilstands_dict ----------------------------------------
         t += dt
 
@@ -492,6 +514,7 @@ def fremregn(
                 indbetaling_dkk=total_indbetaling,
                 udbetaling_dkk=total_udbetaling,
                 omkostning_dkk=total_omkostning,
+                faktisk_udgift_dkk=total_faktisk_udgift,
                 enhedspris=market.enhedspris(t),
                 cashflows_i_live=cashflows_il,
             )

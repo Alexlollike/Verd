@@ -5,7 +5,7 @@ Offentlige funktioner:
     plot_fremregning(skridt, ...)       — plot direkte fra FremregningsSkridt-liste
     plot_fra_dataframe(df, ...)         — plot fra pandas DataFrame (f.eks. læst fra CSV)
 
-Layoutet er fire vertikale paneler:
+Layoutet er fire (eller fem) vertikale paneler:
 
     ┌─────────────────────────────────────────────────┐
     │ Panel 1 — Betingede depoter (givet I_LIVE)      │
@@ -21,10 +21,15 @@ Layoutet er fire vertikale paneler:
     │   Viser benefit-niveau under udbetalingsfasen.  │
     ├─────────────────────────────────────────────────┤
     │ Panel 4 — Overlevelsessandsynlighed p(I_LIVE)   │
+    ├─────────────────────────────────────────────────┤
+    │ Panel 5 — Omkostningsresultat (kun hvis data)   │
+    │   Kumulativ omkostningsindtægt vs. faktisk       │
+    │   udgift; grøn fyld = positivt resultat.         │
     └─────────────────────────────────────────────────┘
 
 Produkter med nul-initial-depot udelades fra legend og plot.
 Pensionsalderen markeres med en lodret stiplet linje på tværs af alle paneler.
+Panel 5 vises kun hvis ``omk_vals`` eller ``faktisk_vals`` indeholder ikke-nul værdier.
 """
 
 from __future__ import annotations
@@ -66,11 +71,16 @@ def _plot_fra_arrays(
     figsize: tuple[float, float],
     gem_fil: str | None,
     ald_lumpsum_dkk: float | None = None,
+    omk_vals: list[float] | None = None,
+    faktisk_vals: list[float] | None = None,
 ) -> "matplotlib.figure.Figure":
     """
-    Intern hjælpefunktion — tegner de fire paneler ud fra forudberegnede arrays.
+    Intern hjælpefunktion — tegner de fire (eller fem) paneler ud fra forudberegnede arrays.
 
     Kaldes af ``plot_fremregning`` og ``plot_fra_dataframe``.
+
+    Panel 5 (omkostningsresultat) vises kun hvis ``omk_vals`` eller ``faktisk_vals``
+    indeholder mindst én ikke-nul værdi.
     """
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
@@ -103,15 +113,32 @@ def _plot_fra_arrays(
     ]
 
     # -----------------------------------------------------------------------
+    # Afgør om panel 5 (omkostningsresultat) skal vises
+    # -----------------------------------------------------------------------
+    vis_omk = bool(
+        (omk_vals and any(v != 0.0 for v in omk_vals))
+        or (faktisk_vals and any(v != 0.0 for v in faktisk_vals))
+    )
+
+    # -----------------------------------------------------------------------
     # Figur og akser
     # -----------------------------------------------------------------------
-    fig, akser = plt.subplots(
-        4, 1,
-        figsize=figsize,
-        gridspec_kw={"height_ratios": [3, 3, 2, 1.2]},
-        sharex=True,
-    )
-    ax_betinget, ax_vaegtet, ax_ydelser, ax_prob = akser
+    if vis_omk:
+        fig, akser = plt.subplots(
+            5, 1,
+            figsize=(figsize[0], figsize[1] + 2.5),
+            gridspec_kw={"height_ratios": [3, 3, 2, 1.2, 1.8]},
+            sharex=True,
+        )
+        ax_betinget, ax_vaegtet, ax_ydelser, ax_prob, ax_omk = akser
+    else:
+        fig, akser = plt.subplots(
+            4, 1,
+            figsize=figsize,
+            gridspec_kw={"height_ratios": [3, 3, 2, 1.2]},
+            sharex=True,
+        )
+        ax_betinget, ax_vaegtet, ax_ydelser, ax_prob = akser
 
     fig.suptitle(titel, fontsize=13, fontweight="bold", y=0.99)
 
@@ -177,8 +204,54 @@ def _plot_fra_arrays(
     ax_prob.set_axisbelow(True)
     ax_prob.set_title("Overlevelsessandsynlighed | p(I_LIVE)", fontsize=10, loc="left")
 
-    # X-akse: tid i år
-    ax_prob.set_xlabel("Tid fra tegningsdato (år)", fontsize=10)
+    # Panel 5 — Omkostningsresultat (kun hvis vis_omk)
+    if vis_omk:
+        _omk = omk_vals or [0.0] * len(t_vals)
+        _fak = faktisk_vals or [0.0] * len(t_vals)
+
+        # Kumulativ sum (DKK akkumuleret over tid)
+        cum_omk = []
+        cum_fak = []
+        cum_res = []
+        s_omk = s_fak = 0.0
+        for o, f in zip(_omk, _fak):
+            s_omk += o
+            s_fak += f
+            cum_omk.append(s_omk)
+            cum_fak.append(s_fak)
+            cum_res.append(s_omk - s_fak)
+
+        ax_omk.plot(t_vals, cum_omk, color="#4472C4", linewidth=1.6,
+                    label="Opkrævet (kumulativ)")
+        ax_omk.plot(t_vals, cum_fak, color="#C00000", linewidth=1.6,
+                    label="Faktisk udgift (kumulativ)", linestyle="--")
+
+        # Grøn fyld for positivt resultat, rød for negativt
+        ax_omk.fill_between(
+            t_vals, cum_omk, cum_fak,
+            where=[o >= f for o, f in zip(cum_omk, cum_fak)],
+            color="#70AD47", alpha=0.35, label="Positivt resultat",
+        )
+        ax_omk.fill_between(
+            t_vals, cum_omk, cum_fak,
+            where=[o < f for o, f in zip(cum_omk, cum_fak)],
+            color="#C00000", alpha=0.25, label="Negativt resultat",
+        )
+
+        ax_omk.set_ylabel("DKK (kumulativ)", fontsize=10)
+        ax_omk.yaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, _: f"{x/1_000:.0f}k")
+        )
+        ax_omk.grid(axis="y", linestyle=":", linewidth=0.6, color="grey", alpha=0.5)
+        ax_omk.set_axisbelow(True)
+        ax_omk.set_title(
+            "Omkostningsresultat | opkrævet − faktisk udgift (kumulativ)", fontsize=10, loc="left"
+        )
+        ax_omk.legend(loc="upper left", fontsize=9, framealpha=0.7)
+        ax_omk.set_xlabel("Tid fra tegningsdato (år)", fontsize=10)
+    else:
+        # X-akse: tid i år på panel 4 når panel 5 ikke vises
+        ax_prob.set_xlabel("Tid fra tegningsdato (år)", fontsize=10)
 
     # -----------------------------------------------------------------------
     # Pensionsalder-markering
@@ -282,6 +355,9 @@ def plot_fremregning(
         udb_rate_vals.append(max(cf.b_ratepension, 0.0))
         udb_liv_vals.append(max(cf.b_livrente, 0.0))
 
+    omk_vals = [s.omkostning_dkk for s in skridt]
+    faktisk_vals = [s.faktisk_udgift_dkk for s in skridt]
+
     return _plot_fra_arrays(
         t_vals=t_vals,
         prob_vals=prob_vals,
@@ -297,6 +373,8 @@ def plot_fremregning(
         pensionsalder_t=pensionsalder_t,
         figsize=figsize,
         gem_fil=gem_fil,
+        omk_vals=omk_vals,
+        faktisk_vals=faktisk_vals,
     )
 
 
@@ -320,6 +398,10 @@ def plot_fra_dataframe(
         ``forventet_aldersopsparing_dkk``, ``forventet_ratepension_dkk``, ``forventet_livrente_dkk``,
         ``b_ratepension``, ``b_livrente``
 
+    Valgfrie kolonner (produceret hvis ``faktisk_udgift_funktion`` er angivet):
+        ``omkostning_dkk``, ``faktisk_udgift_dkk``
+        Hvis til stede og ikke-nul vises panel 5 med kumulativt omkostningsresultat.
+
     Parameters
     ----------
     df:
@@ -340,6 +422,9 @@ def plot_fra_dataframe(
     matplotlib.figure.Figure
         Den oprettede figur.
     """
+    omk_vals = df["omkostning_dkk"].tolist() if "omkostning_dkk" in df.columns else None
+    faktisk_vals = df["faktisk_udgift_dkk"].tolist() if "faktisk_udgift_dkk" in df.columns else None
+
     return _plot_fra_arrays(
         t_vals=df["t"].tolist(),
         prob_vals=df["p_i_live"].tolist(),
@@ -356,4 +441,6 @@ def plot_fra_dataframe(
         figsize=figsize,
         gem_fil=gem_fil,
         ald_lumpsum_dkk=ald_lumpsum_dkk,
+        omk_vals=omk_vals,
+        faktisk_vals=faktisk_vals,
     )
