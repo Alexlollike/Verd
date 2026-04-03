@@ -65,6 +65,8 @@ police = Policy.fra_dkk(
     ratepensionsvarighed=10,
     livrentedepot=50_000.0,
     enhedspris=marked.enhedspris(0.0),
+    ratepension_andel=80_000 / 250_000,
+    aldersopsparing_andel=120_000 / 250_000,
     tilstand=PolicyState.I_LIVE,
 )
 
@@ -90,12 +92,7 @@ beloebsgraenser = BeloebsgraenserOpslag.fra_satser(
 #   livrente (rest)  :  50.000 / 250.000 = 0,20
 # Beløbsgrænser håndhæves: overskydende beløb sendes til livrente.
 # ---------------------------------------------------------------------------
-praemieallokering = PraemieFlow(
-    risiko_bundle=None,
-    beloebsgraenser=beloebsgraenser,
-    ratepension_andel=80_000 / 250_000,
-    aldersopsparing_andel=120_000 / 250_000,
-)
+praemieallokering = PraemieFlow(beloebsgraenser=beloebsgraenser)
 
 # ---------------------------------------------------------------------------
 # Fremregning — 60 år (opsparing + udbetaling til alder 100)

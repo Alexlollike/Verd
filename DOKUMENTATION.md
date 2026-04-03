@@ -233,7 +233,7 @@ Annuitetsfaktorerne genberegnes ved hvert tidsstep, så ydelsen afspejler den ak
 
 ## 8. Præmieallokering — PraemieFlow
 
-`PraemieFlow` (`praemieflow.py`) styrer fordelingen af bruttopræmien på risikodækning og de tre opsparingsdepoter. Det er den centrale konfigurationsobjekt til en realistisk police.
+`PraemieFlow` (`praemieflow.py`) indeholder de skattemæssige beløbsgrænser der skal overholdes ved fordeling af nettopræmien. De police-specifikke allokeringsønsker (`ratepension_andel`, `aldersopsparing_andel`) og risikodækninger (`risiko_bundle`) er felter på `Policy`.
 
 ### Algoritme
 
@@ -471,14 +471,7 @@ risiko = RisikoBundle([
     RisikoDaekning("SUL",      300.0),
 ])
 
-# Præmieallokering: 60 % til ratepension, 20 % til aldersopsparing
-praemieflow = PraemieFlow(
-    risiko_bundle          = risiko,
-    ratepension_andel      = 0.60,
-    aldersopsparing_andel  = 0.20,
-)
-
-# Police (opsparing)
+# Police (opsparing) — allokeringsønsker og risikodækning ligger på policen
 police = Policy.fra_dkk(
     foedselsdato         = date(1980, 1, 15),
     tegningsdato         = date(2020, 6, 1),   # alder ≈ 40,4 år
@@ -489,8 +482,13 @@ police = Policy.fra_dkk(
     ratepensionsvarighed = 10,                 # år
     livrentedepot_dkk    = 50_000,
     marked               = marked,
+    ratepension_andel    = 0.60,               # 60 % af nettopræmie til ratepension
+    aldersopsparing_andel = 0.20,              # 20 % til aldersopsparing
     risiko_bundle        = risiko,
 )
+
+# PraemieFlow indeholder kun beløbsgrænser (offentlige satser)
+praemieflow = PraemieFlow(beloebsgraenser=None)  # ingen lofter her
 
 # Fremregning — opsparingsfase (26,6 år til pension)
 tilstandsmodel   = standard_toetilstands_model(biometri)
@@ -536,11 +534,9 @@ flowchart TD
         ratepensionsopsparing, ratepensionsvarighed
         livrentedepot
         er_under_udbetaling
+        ratepension_andel, aldersopsparing_andel
         risiko_bundle"]
         UI4["**PraemieFlow**
-        risiko_bundle
-        ratepension_andel
-        aldersopsparing_andel
         beloebsgraenser"]
         UI5["**Omkostningsparametre**
         aum_rate, styk_aar"]
@@ -657,9 +653,10 @@ flowchart TD
         → CashflowSats
         ─────────────────────────────
         Opsparingsfase:
-          PraemieFlow.beregn(brutto) → π_d per depot
+          PraemieFlow.beregn(brutto, policy.ratepension_andel,
+            policy.aldersopsparing_andel, policy.risiko_bundle) → π_d per depot
           fordelt: ratepension_andel, aldersopsparing_andel, rest→livrente
-          minus: risikopræmie (RisikoBundle)
+          minus: risikopræmie (policy.risiko_bundle)
           lofter: BeloebsgraenserOpslag
         Udbetalingsfase:
           b_ald  = V_ald / dt  (engangsudbetaling)
@@ -731,7 +728,8 @@ flowchart TD
 | `er_under_udbetaling` | Alle cashflow-funktioner | Brancher mellem opsparings- og udbetalingslogik |
 | `pensionsalder` | Kaldende kode | Bestemmer antal skridt i opsparingsfasen (`t_pension`) — bruges **ikke** direkte af `fremregn()` |
 | `tilstand` | `fremregn()`, `thiele_step()` | Identificerer hvilken Markov-tilstand policyen tilhører |
-| `risiko_bundle` | `PraemieFlow`, `praemieflow_cashflow_funktion()` | Risikopræmie fratrukket bruttopræmien inden depotallokering |
+| `risiko_bundle` | `praemieflow_cashflow_funktion()` via `PraemieFlow.beregn()` | Risikopræmie fratrukket bruttopræmien inden depotallokering |
+| `ratepension_andel`, `aldersopsparing_andel` | `praemieflow_cashflow_funktion()` via `PraemieFlow.beregn()` | Kundens ønskede fordeling af nettopræmien på depoterne |
 | `gruppe_id`, `omkostningssats_id` | *(opslagsnøgler — fremtidig brug)* | Reserveret til fremtidig tabelopslag |
 
 ---

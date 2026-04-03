@@ -56,13 +56,13 @@ print(f"  Ratepension max     : {graenser_1.ratepension_max:>10,.0f} DKK/år")
 print(f"  Livrente max        : {'ingen':>10}")
 print()
 
-praemieflow_1 = PraemieFlow(
-    risiko_bundle=STANDARD_RISIKO_BUNDLE,
-    beloebsgraenser=graenser_1,
+praemieflow_1 = PraemieFlow(beloebsgraenser=graenser_1)
+resultat_1: PraemieFlowResultat = praemieflow_1.beregn(
+    BRUTTO_1,
     ratepension_andel=0.20,
     aldersopsparing_andel=0.10,
+    risiko_bundle=STANDARD_RISIKO_BUNDLE,
 )
-resultat_1: PraemieFlowResultat = praemieflow_1.beregn(BRUTTO_1)
 
 print(f"  Bruttopræmie        : {BRUTTO_1:>10,.0f} DKK/år")
 print(f"  - Risikopræmie      : {resultat_1.risikopraemie_dkk:>10,.0f} DKK/år  (dødsfald + TAE + SUL)")
@@ -89,13 +89,13 @@ print(f"  Aldersopsparing max : {graenser_2.aldersopsparing_max:>10,.0f} DKK/år
 print(f"  Ratepension max     : {graenser_2.ratepension_max:>10,.0f} DKK/år")
 print()
 
-praemieflow_2 = PraemieFlow(
-    risiko_bundle=STANDARD_RISIKO_BUNDLE,
-    beloebsgraenser=graenser_2,
+praemieflow_2 = PraemieFlow(beloebsgraenser=graenser_2)
+resultat_2 = praemieflow_2.beregn(
+    BRUTTO_2,
     ratepension_andel=0.20,
     aldersopsparing_andel=0.10,
+    risiko_bundle=STANDARD_RISIKO_BUNDLE,
 )
-resultat_2 = praemieflow_2.beregn(BRUTTO_2)
 
 print(f"  Bruttopræmie        : {BRUTTO_2:>10,.0f} DKK/år")
 print(f"  - Risikopræmie      : {resultat_2.risikopraemie_dkk:>10,.0f} DKK/år")
@@ -114,7 +114,12 @@ print("SCENARIE 3 — Høj bruttopræmie (cap på ratepension rammer)")
 print("=" * 65)
 
 BRUTTO_3 = 400_000.0
-resultat_3 = praemieflow_1.beregn(BRUTTO_3)  # genbruger Scenarie 1's praemieflow
+resultat_3 = praemieflow_1.beregn(  # genbruger Scenarie 1's beloebsgraenser
+    BRUTTO_3,
+    ratepension_andel=0.20,
+    aldersopsparing_andel=0.10,
+    risiko_bundle=STANDARD_RISIKO_BUNDLE,
+)
 
 pi_netto_3 = BRUTTO_3 - resultat_3.risikopraemie_dkk
 rate_ønsket_3 = pi_netto_3 * 0.20
@@ -150,6 +155,9 @@ police_base = Policy.fra_dkk(
     ratepensionsvarighed=10,
     livrentedepot=0.0,
     enhedspris=marked.enhedspris(0.0),
+    ratepension_andel=0.0,
+    aldersopsparing_andel=1.0,  # alt nettopræmie ønskes til aldersopsparing (op til loft)
+    risiko_bundle=STANDARD_RISIKO_BUNDLE,
 )
 tilstandsmodel = standard_toetilstands_model(biometri)
 ANTAL_AAR = 10
@@ -167,12 +175,7 @@ skridt_uden = fremregn(
 graenser_scen4 = BeloebsgraenserOpslag.fra_satser(
     satser, aar=2026, aar_til_folkepension=67 - 35
 )
-pf_med = PraemieFlow(
-    risiko_bundle=STANDARD_RISIKO_BUNDLE,
-    beloebsgraenser=graenser_scen4,
-    ratepension_andel=0.0,
-    aldersopsparing_andel=1.0,  # alt nettopræmie ønskes til aldersopsparing (op til loft)
-)
+pf_med = PraemieFlow(beloebsgraenser=graenser_scen4)
 skridt_med = fremregn(
     distribution=initial_distribution(police_base),
     antal_skridt=ANTAL_AAR * 12,

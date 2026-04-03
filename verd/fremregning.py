@@ -623,7 +623,12 @@ def praemieflow_cashflow_funktion(praemieflow: PraemieFlow) -> CashflowFunktion:
             return CashflowSats()
 
         bruttoindbetalng_aar = policy.loen * policy.indbetalingsprocent
-        resultat = praemieflow.beregn(bruttoindbetalng_aar)
+        resultat = praemieflow.beregn(
+            bruttoindbetalng_aar,
+            ratepension_andel=policy.ratepension_andel,
+            aldersopsparing_andel=policy.aldersopsparing_andel,
+            risiko_bundle=policy.risiko_bundle,
+        )
 
         return CashflowSats(
             b_aldersopsparing=-resultat.aldersopsparing_dkk,

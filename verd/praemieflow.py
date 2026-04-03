@@ -70,10 +70,12 @@ class PraemieFlowResultat:
 @dataclass
 class PraemieFlow:
     """
-    Præmieflow-konfiguration — risikofradrag og allokeringsønsker.
+    Præmieflow-konfiguration — skattemæssige beløbsgrænser for allokeringen.
 
-    Knytter risikodækninger og skattemæssige beløbsgrænser til en police og
-    beskriver kundens ønskede fordeling af nettopræmien på de tre depoter.
+    Indeholder de offentligt fastsatte beløbsgrænser der skal overholdes ved
+    fordeling af nettopræmien. Kundens allokeringsønsker (``ratepension_andel``,
+    ``aldersopsparing_andel``) og risikodækninger (``risiko_bundle``) er
+    police-specifikke og ligger på ``Policy``-objektet.
 
     Allokeringslogik i ``beregn()``:
         1. Træk risikopræmie fra bruttopræmien: π_netto = π_brutto − risiko
@@ -94,25 +96,19 @@ class PraemieFlow:
 
     Attributes
     ----------
-    risiko_bundle:
-        Risikodækninger der finansieres før opsparingsallokering. ``None`` = ingen risiko.
     beloebsgraenser:
         Skattemæssige beløbsgrænser. ``None`` = ingen lofter (livrente modtager al rest).
-    ratepension_andel:
-        Ønsket andel af π_netto til ratepension (0.0–1.0).
-    aldersopsparing_andel:
-        Ønsket andel af π_netto til aldersopsparing (0.0–1.0).
-        Summen ``ratepension_andel + aldersopsparing_andel`` bør være ≤ 1.0.
-        Rest (1 − sum) er den ønskede livrente-andel — men livrente modtager altid
-        hvad rate og ald ikke kan aftage pga. lofter.
     """
 
-    risiko_bundle: RisikoBundle | None
     beloebsgraenser: BeloebsgraenserOpslag | None
-    ratepension_andel: float
-    aldersopsparing_andel: float
 
-    def beregn(self, bruttoindbetalng_aar: float) -> PraemieFlowResultat:
+    def beregn(
+        self,
+        bruttoindbetalng_aar: float,
+        ratepension_andel: float,
+        aldersopsparing_andel: float,
+        risiko_bundle: RisikoBundle | None,
+    ) -> PraemieFlowResultat:
         """
         Beregn præmieflow for ét år.
 
@@ -120,6 +116,16 @@ class PraemieFlow:
         ----------
         bruttoindbetalng_aar:
             Bruttopræmie i DKK/år (typisk ``loen × indbetalingsprocent``).
+        ratepension_andel:
+            Ønsket andel af π_netto til ratepension (0.0–1.0).
+            Typisk ``policy.ratepension_andel``.
+        aldersopsparing_andel:
+            Ønsket andel af π_netto til aldersopsparing (0.0–1.0).
+            Summen ``ratepension_andel + aldersopsparing_andel`` bør være ≤ 1.0.
+            Typisk ``policy.aldersopsparing_andel``.
+        risiko_bundle:
+            Risikodækninger der finansieres før opsparingsallokering. ``None`` = ingen risiko.
+            Typisk ``policy.risiko_bundle``.
 
         Returns
         -------
@@ -129,8 +135,8 @@ class PraemieFlow:
         """
         # ---- 1. Risikofradrag -----------------------------------------------
         risikopraemie = (
-            self.risiko_bundle.aarlig_praemie_dkk
-            if self.risiko_bundle is not None
+            risiko_bundle.aarlig_praemie_dkk
+            if risiko_bundle is not None
             else 0.0
         )
         pi_netto = bruttoindbetalng_aar - risikopraemie
@@ -147,8 +153,8 @@ class PraemieFlow:
             )
 
         # ---- 3. Ønsket allokering -------------------------------------------
-        rate_ønsket = pi_netto * self.ratepension_andel
-        ald_ønsket = pi_netto * self.aldersopsparing_andel
+        rate_ønsket = pi_netto * ratepension_andel
+        ald_ønsket = pi_netto * aldersopsparing_andel
 
         # ---- 4. Beskær ved beløbsgrænser ------------------------------------
         if self.beloebsgraenser is not None:

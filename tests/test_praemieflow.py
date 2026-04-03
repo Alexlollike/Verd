@@ -102,15 +102,18 @@ class TestPraemieFlowKonservering:
     def setup_method(self):
         satser = indlæs_offentlige_satser(STANDARD_SATSER_FILSTI)
         graenser = BeloebsgraenserOpslag.fra_satser(satser, aar=2026, aar_til_folkepension=20)
-        self.pf = PraemieFlow(
-            risiko_bundle=STANDARD_RISIKO_BUNDLE,
-            beloebsgraenser=graenser,
-            ratepension_andel=0.20,
-            aldersopsparing_andel=0.10,
-        )
+        self.pf = PraemieFlow(beloebsgraenser=graenser)
+        self.ratepension_andel = 0.20
+        self.aldersopsparing_andel = 0.10
+        self.risiko_bundle = STANDARD_RISIKO_BUNDLE
 
     def _assert_konservering(self, brutto: float):
-        r = self.pf.beregn(brutto)
+        r = self.pf.beregn(
+            brutto,
+            ratepension_andel=self.ratepension_andel,
+            aldersopsparing_andel=self.aldersopsparing_andel,
+            risiko_bundle=self.risiko_bundle,
+        )
         assert abs(r.total_dkk - brutto) < 1e-9, (
             f"total={r.total_dkk:.6f} ≠ brutto={brutto}"
         )
@@ -142,82 +145,48 @@ class TestPraemieFlowBeloeb:
         self.graenser = BeloebsgraenserOpslag.fra_satser(satser, aar=2026, aar_til_folkepension=20)
 
     def test_risikopraemie_fratrukket(self):
-        pf = PraemieFlow(
-            risiko_bundle=STANDARD_RISIKO_BUNDLE,
-            beloebsgraenser=self.graenser,
-            ratepension_andel=0.0,
-            aldersopsparing_andel=0.0,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=self.graenser)
+        r = pf.beregn(100_000.0, ratepension_andel=0.0, aldersopsparing_andel=0.0, risiko_bundle=STANDARD_RISIKO_BUNDLE)
         assert r.risikopraemie_dkk == 1_500.0
         assert abs(r.livrente_dkk - 98_500.0) < 1e-9
 
     def test_ingen_risikobundle_giver_nul_risikopraemie(self):
-        pf = PraemieFlow(
-            risiko_bundle=None,
-            beloebsgraenser=self.graenser,
-            ratepension_andel=0.0,
-            aldersopsparing_andel=0.0,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=self.graenser)
+        r = pf.beregn(100_000.0, ratepension_andel=0.0, aldersopsparing_andel=0.0, risiko_bundle=None)
         assert r.risikopraemie_dkk == 0.0
 
     def test_rate_under_cap_ikke_begraenset(self):
         """100.000 kr brutto: ønsket rate = 20% af π_netto = 19.700 < loft 68.700 → ikke capped."""
-        pf = PraemieFlow(
-            risiko_bundle=STANDARD_RISIKO_BUNDLE,
-            beloebsgraenser=self.graenser,
-            ratepension_andel=0.20,
-            aldersopsparing_andel=0.0,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=self.graenser)
+        r = pf.beregn(100_000.0, ratepension_andel=0.20, aldersopsparing_andel=0.0, risiko_bundle=STANDARD_RISIKO_BUNDLE)
         pi_netto = 100_000.0 - 1_500.0
         assert abs(r.ratepension_dkk - pi_netto * 0.20) < 1e-9
 
     def test_rate_cap_rammer_ved_stor_indbetaling(self):
         """400.000 kr: ønsket rate = 20% × 398.500 = 79.700 > loft 68.700."""
-        pf = PraemieFlow(
-            risiko_bundle=STANDARD_RISIKO_BUNDLE,
-            beloebsgraenser=self.graenser,
-            ratepension_andel=0.20,
-            aldersopsparing_andel=0.0,
-        )
-        r = pf.beregn(400_000.0)
+        pf = PraemieFlow(beloebsgraenser=self.graenser)
+        r = pf.beregn(400_000.0, ratepension_andel=0.20, aldersopsparing_andel=0.0, risiko_bundle=STANDARD_RISIKO_BUNDLE)
         assert abs(r.ratepension_dkk - 68_700.0) < 1e-9
         # Overskud (79.700 - 68.700 = 11.000) ender i livrente
         assert r.livrente_dkk > 400_000.0 * 0.20
 
     def test_ald_cap_normal_niveau(self):
         """Over loft på 9.900 kr (normal-niveau): overflow til livrente."""
-        pf = PraemieFlow(
-            risiko_bundle=None,
-            beloebsgraenser=self.graenser,  # normal: 9.900
-            ratepension_andel=0.0,
-            aldersopsparing_andel=0.50,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=self.graenser)  # normal: 9.900
+        r = pf.beregn(100_000.0, ratepension_andel=0.0, aldersopsparing_andel=0.50, risiko_bundle=None)
         assert abs(r.aldersopsparing_dkk - 9_900.0) < 1e-9
 
     def test_naer_pension_aldersopsparing_max(self):
         satser = indlæs_offentlige_satser(STANDARD_SATSER_FILSTI)
         graenser_np = BeloebsgraenserOpslag.fra_satser(satser, aar=2026, aar_til_folkepension=5)
-        pf = PraemieFlow(
-            risiko_bundle=None,
-            beloebsgraenser=graenser_np,
-            ratepension_andel=0.0,
-            aldersopsparing_andel=1.0,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=graenser_np)
+        r = pf.beregn(100_000.0, ratepension_andel=0.0, aldersopsparing_andel=1.0, risiko_bundle=None)
         assert abs(r.aldersopsparing_dkk - 64_200.0) < 1e-9
 
     def test_negativt_pi_netto_giver_negativ_aldersopsparing(self):
-        pf = PraemieFlow(
-            risiko_bundle=STANDARD_RISIKO_BUNDLE,
-            beloebsgraenser=self.graenser,
-            ratepension_andel=0.20,
-            aldersopsparing_andel=0.10,
-        )
-        r = pf.beregn(500.0)  # risiko = 1500 > brutto = 500 → π_netto = -1000
+        pf = PraemieFlow(beloebsgraenser=self.graenser)
+        r = pf.beregn(500.0, ratepension_andel=0.20, aldersopsparing_andel=0.10, risiko_bundle=STANDARD_RISIKO_BUNDLE)
+        # risiko = 1500 > brutto = 500 → π_netto = -1000
         assert r.risikopraemie_dkk == 1_500.0
         assert r.aldersopsparing_dkk == -1_000.0
         assert r.ratepension_dkk == 0.0
@@ -225,13 +194,8 @@ class TestPraemieFlowBeloeb:
         assert abs(r.total_dkk - 500.0) < 1e-9
 
     def test_ingen_beloebsgraenser_respekterer_andele(self):
-        pf = PraemieFlow(
-            risiko_bundle=None,
-            beloebsgraenser=None,  # ingen lofter
-            ratepension_andel=0.30,
-            aldersopsparing_andel=0.20,
-        )
-        r = pf.beregn(100_000.0)
+        pf = PraemieFlow(beloebsgraenser=None)  # ingen lofter
+        r = pf.beregn(100_000.0, ratepension_andel=0.30, aldersopsparing_andel=0.20, risiko_bundle=None)
         assert abs(r.ratepension_dkk - 30_000.0) < 1e-9
         assert abs(r.aldersopsparing_dkk - 20_000.0) < 1e-9
         assert abs(r.livrente_dkk - 50_000.0) < 1e-9

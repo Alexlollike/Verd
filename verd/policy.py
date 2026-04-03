@@ -83,6 +83,12 @@ class Policy:
         Udbetalingsperiode for ratepension i hele år.
     livrentedepot:
         Antal enheder (units) i livrentedepot.
+    ratepension_andel:
+        Ønsket andel af nettopræmien der allokeres til ratepension (0.0–1.0).
+        Bruges af ``praemieflow_cashflow_funktion``. Standard: 0.0.
+    aldersopsparing_andel:
+        Ønsket andel af nettopræmien der allokeres til aldersopsparing (0.0–1.0).
+        Bruges af ``praemieflow_cashflow_funktion``. Standard: 0.0.
     tilstand:
         Nuværende Markov-tilstand. Standard: ``PolicyState.I_LIVE``.
     """
@@ -99,6 +105,8 @@ class Policy:
     ratepensionsopsparing: float
     ratepensionsvarighed: int
     livrentedepot: float
+    ratepension_andel: float = field(default=0.0)
+    aldersopsparing_andel: float = field(default=0.0)
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
     doedsydelses_type: DoedsydelsesType = field(default=DoedsydelsesType.INGEN)
     risiko_bundle: RisikoBundle | None = field(default=None)
@@ -119,8 +127,11 @@ class Policy:
         ratepensionsvarighed: int,
         livrentedepot: float,
         enhedspris: float,
+        ratepension_andel: float = 0.0,
+        aldersopsparing_andel: float = 0.0,
         tilstand: PolicyState = PolicyState.I_LIVE,
         doedsydelses_type: DoedsydelsesType = DoedsydelsesType.INGEN,
+        risiko_bundle: "RisikoBundle | None" = None,
     ) -> "Policy":
         """
         Opret en Policy med depotværdier angivet i DKK.
@@ -158,8 +169,11 @@ class Policy:
             ratepensionsopsparing=ratepensionsopsparing / enhedspris,
             ratepensionsvarighed=ratepensionsvarighed,
             livrentedepot=livrentedepot / enhedspris,
+            ratepension_andel=ratepension_andel,
+            aldersopsparing_andel=aldersopsparing_andel,
             tilstand=tilstand,
             doedsydelses_type=doedsydelses_type,
+            risiko_bundle=risiko_bundle,
         )
 
     def alder_ved_tegning(self) -> float:
@@ -219,6 +233,8 @@ class Policy:
             f"  OmkostningssatsID    : {self.omkostningssats_id}\n"
             f"  Løn                  : {self.loen:,.0f} DKK/år\n"
             f"  Indbetalingsprocent  : {self.indbetalingsprocent:.1%}\n"
+            f"  Ratepension andel    : {self.ratepension_andel:.1%}\n"
+            f"  Aldersopsparing andel: {self.aldersopsparing_andel:.1%}\n"
             f"  --- Depoter (enheder / units) ---\n"
             f"  Aldersopsparing      : {self.aldersopsparing:,.4f} enh.\n"
             f"  Ratepensionsopsparing: {self.ratepensionsopsparing:,.4f} enh.\n"
