@@ -762,6 +762,83 @@ flowchart TD
 
 ---
 
+## 18. Driftsplan-fremregninger — 18 repræsentative policer
+
+`examples/fremregning_driftsplan.py` genererer 18 sandsynlighedsvægtede fremregninger
+af repræsentative policer til brug i en driftsplan/business case (2027–2031). Hver
+fremregning repræsenterer en kohorte af forsikringstagere og bruges til at estimere
+AuM, revenue og omkostningsresultat via en afløbstrekant.
+
+### Kørsel
+
+```
+python examples/fremregning_driftsplan.py
+```
+
+Output: 18 CSV-filer i `driftsplan/`, én per police:
+
+```
+driftsplan/fremregning_{alder}_{profil}.csv
+```
+
+### Faste model-parametre
+
+| Parameter | Værdi |
+|---|---|
+| Tegningsdato | 2027-01-01 |
+| Biometri | GompertzMakeham(α=0.0005, β=0.00004, σ=0.09) |
+| Finansielt marked | DeterministicMarket(r=ln(1.05)) — 5 % p.a. |
+| Omkostningsindtægt | 0,5 % AUM + 200 DKK/år |
+| Faktisk driftsomkostning | 0,3 % AUM + 500 DKK/år |
+| Projektionshorisont | max(60 år, 100 − alder) månedlige skridt |
+| Folkepensionsalder | 67 år (til beloebsgraense-opslag) |
+| Beloebsgraenser | 2026-satser fra `data/offentlige_satser.csv` |
+
+### Police-konfigurationer
+
+Tre dimensioner: **6 aldersgrupper × 3 profiler = 18 policer**.
+
+| # | Alder | Profil | Netto md. indb. | Transfer-depot | Split Rate/Liv/Ald | Pensionsalder |
+|---|-------|--------|----------------:|---------------:|:------------------:|:-------------:|
+| 1 | 30 | A | 3.600 | 80.000 | 55/25/20 | 67 |
+| 2 | 30 | B | 5.600 | 150.000 | 50/30/20 | 67 |
+| 3 | 35 | A | 4.000 | 200.000 | 50/30/20 | 67 |
+| 4 | 35 | B | 6.400 | 350.000 | 45/35/20 | 67 |
+| 5 | 40 | A | 4.400 | 350.000 | 48/32/20 | 67 |
+| 6 | 40 | B | 7.200 | 600.000 | 45/35/20 | 67 |
+| 7 | 40 | C | 12.000 | 400.000 | 30/55/15 | 67 |
+| 8 | 45 | A | 4.800 | 500.000 | 45/35/20 | 67 |
+| 9 | 45 | B | 8.000 | 900.000 | 40/40/20 | 67 |
+| 10 | 45 | C | 14.400 | 700.000 | 25/60/15 | 67 |
+| 11 | 50 | A | 5.200 | 700.000 | 40/40/20 | 68 |
+| 12 | 50 | B | 8.800 | 1.300.000 | 35/45/20 | 68 |
+| 13 | 50 | C | 17.600 | 1.000.000 | 20/65/15 | 68 |
+| 14 | 55 | A | 5.600 | 900.000 | 35/45/20 | 68 |
+| 15 | 55 | B | 9.600 | 1.700.000 | 30/50/20 | 68 |
+| 16 | 55 | C | 20.000 | 1.400.000 | 15/70/15 | 68 |
+| 17 | 60 | A | 4.000 | 1.100.000 | 30/50/20 | 68 |
+| 18 | 60 | B | 6.400 | 2.000.000 | 25/55/20 | 68 |
+
+Alle beløb i DKK. "Netto" = brutto × 0,80 (20 % til forsikringsdækning er fratrukket
+inden depot-allokering; `risiko_bundle=None` i fremregningen).
+
+### Designbeslutninger
+
+- **`loen` og `indbetalingsprocent`**: Netto månedlig indbetaling indgår direkte som
+  `loen × 0.15 / 12`. Løn beregnes baglæns: `loen = netto_md × 12 / 0.15`.
+- **`groupe_id="DK_MAND_2023"`**: Kønsneutral base case — acceptabelt til forretningsplan.
+- **`ratepensionsvarighed=10`**: Markedsstandard for ratepension.
+- **`doedsydelses_type=DoedsydelsesType.INGEN`**: Ingen depotsikring i base case.
+- **`PraemieFlow`-overflow**: Overskydende allokering (pga. beloebsgraenser) sendes
+  automatisk til livrente — den faktiske split kan afvige fra spec ved høje indbetalinger.
+- **Negativ omkostningsresultat ved lille AUM**: Policer med lavt initialt depot
+  (< ~150.000 DKK) vil have negativt omkostningsresultat i de første skridt, fordi den
+  faste faktiske udgift (500 DKK/år) overstiger den faste indkomst (200 DKK/år). Dette
+  er en reel forretningsvirkelighed — AUM-marginen (0,5 % − 0,3 % = 0,2 %) kompenserer
+  efterhånden som depotet vokser.
+
+---
+
 ## 17. Hvad er ikke med i v1.0
 
 - Stokastisk finansielt marked (rentekurve, scenariebaseret)
