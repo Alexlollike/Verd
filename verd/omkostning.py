@@ -97,6 +97,12 @@ def standard_omkostning(
     def _omk(policy: Policy, t: float) -> float:
         P_t = market.enhedspris(t)
         V_total = policy.total_enheder() * P_t
+        # AUM-satsen er 0 når V_total = 0 (tomt depot giver ingen AUM-omkostning).
+        # styk_aar opkræves derimod altid — uanset depotets størrelse — da
+        # selskabets administrative udgifter til policeadministration er
+        # uafhængige af depotværdien. Hvis V_total = 0 og styk_aar > 0,
+        # vil thiele_step beregne en negativ depotændring, der afskæres til 0
+        # med en advarsel. Dette er forventet adfærd for en police med tomt depot.
         return aum_rate * V_total + styk_aar
 
     return _omk

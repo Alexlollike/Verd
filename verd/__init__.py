@@ -12,7 +12,7 @@ from verd.biometric_model import BiometricModel
 from verd.gompertz_makeham import GompertzMakeham
 from verd.financial_market import FinancialMarket
 from verd.deterministic_market import DeterministicMarket
-from verd.thiele import CashflowSats, RisikoSummer, thiele_step
+from verd.thiele import CashflowSats, RisikoSummer, nul_risikosum, thiele_step
 from verd.overgang import (
     OvergangsIntensitet,
     BiometriOvergangsIntensitet,
@@ -45,7 +45,6 @@ from verd.fremregning import (
     FremregningsSkridt,
     simpel_opsparings_cashflow,
     simpel_cashflow_funktion,
-    nul_risikosum,
     beregn_risikosum_funktion,
     standard_toetilstands_model,
     fremregn,
@@ -75,6 +74,7 @@ __all__ = [
     # Thiele-mekanik
     "CashflowSats",
     "RisikoSummer",
+    "nul_risikosum",
     "thiele_step",
     # Tilstandsrum og overgange
     "OvergangsIntensitet",
@@ -109,7 +109,6 @@ __all__ = [
     "FremregningsSkridt",
     "simpel_opsparings_cashflow",
     "simpel_cashflow_funktion",
-    "nul_risikosum",
     "beregn_risikosum_funktion",
     "standard_toetilstands_model",
     "fremregn",

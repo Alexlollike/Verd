@@ -80,7 +80,7 @@ class Policy:
     ratepensionsopsparing:
         Antal enheder (units) i ratepensionsdepot.
     ratepensionsvarighed:
-        Udbetalingsperiode for ratepension i hele år.
+        Udbetalingsperiode for ratepension i år (kan have decimaler).
     livrentedepot:
         Antal enheder (units) i livrentedepot.
     tilstand:
@@ -97,7 +97,7 @@ class Policy:
     indbetalingsprocent: float
     aldersopsparing: float
     ratepensionsopsparing: float
-    ratepensionsvarighed: int
+    ratepensionsvarighed: float
     livrentedepot: float
     tilstand: PolicyState = field(default=PolicyState.I_LIVE)
     doedsydelses_type: DoedsydelsesType = field(default=DoedsydelsesType.INGEN)
@@ -116,7 +116,7 @@ class Policy:
         indbetalingsprocent: float,
         aldersopsparing: float,
         ratepensionsopsparing: float,
-        ratepensionsvarighed: int,
+        ratepensionsvarighed: float,
         livrentedepot: float,
         enhedspris: float,
         tilstand: PolicyState = PolicyState.I_LIVE,
