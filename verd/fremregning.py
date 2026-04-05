@@ -35,7 +35,7 @@ from verd.policy import DoedsydelsesType, Policy
 from verd.policy_distribution import PolicyDistribution
 from verd.policy_state import PolicyState
 from verd.praemieflow import PraemieFlow
-from verd.thiele import CashflowSats, RisikoSummer, thiele_step
+from verd.thiele import CashflowSats, RisikoSummer, nul_risikosum, thiele_step
 
 # Signaturer for brugerdefinerbare funktioner
 CashflowFunktion = Callable[[Policy, float], CashflowSats]
@@ -136,9 +136,14 @@ class FremregningsSkridt:
 
     @property
     def forventet_depot_dkk(self) -> float:
-        """Sandsynlighedsvægtet forventet total depot i DKK for I_LIVE-tilstanden."""
-        s = self.i_live
-        return s.forventet_depot_dkk if s is not None else 0.0
+        """
+        Sandsynlighedsvægtet forventet total depot i DKK over alle tilstande.
+
+        Beregnes som Σ_i p_i(t) · V_i(t) summeret over alle tilstande i modellen.
+        For v1.0 (DOED-depot = 0) svarer dette til I_LIVE-bidraget alene, men
+        formlen er korrekt for alle fremtidige tilstande (f.eks. INVALID).
+        """
+        return sum(s.forventet_depot_dkk for s in self.tilstande)
 
 
 def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
@@ -187,32 +192,9 @@ def simpel_opsparings_cashflow(policy: Policy, t: float) -> CashflowSats:
     )
 
 
-def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
-    """
-    Standard risikosum-funktion for rent unit-link uden ekstra dødsbenefit.
-
-    Returnerer R_ij_d = 0 for alle depoter, svarende til at dødsbenefit =
-    depotsværdi og DOED-reserven er nul:
-
-        R_ij_d = S_ij_d + V_j_d − V_i_d = V_i_d + 0 − V_i_d = 0
-
-    Det biometriske led −µ_ij·R_ij_d bidrager numerisk med nul, men er
-    strukturelt til stede i ligningerne (se ``thiele_step``).
-
-    Parameters
-    ----------
-    policy:
-        Ikke brugt — returnerer altid ``RisikoSummer()`` med nulværdier.
-    t:
-        Ikke brugt.
-
-    Returns
-    -------
-    RisikoSummer
-        Risikosum med alle depot-værdier = 0.
-    """
-    return RisikoSummer()
-
+# nul_risikosum er defineret i verd.thiele og importeret ovenfor.
+# Re-eksporteres herfra for bagudkompatibilitet med kode der importerer
+# fra verd.fremregning. Se verd.thiele.nul_risikosum for dokumentation.
 
 def beregn_risikosum_funktion(market: FinancialMarket) -> RisikosumFunktion:
     """
@@ -367,6 +349,8 @@ def fremregn(
     """
     if not distribution:
         raise ValueError("distribution er tom")
+
+    tilstandsmodel.valider()
 
     # Byg den interne tilstandstabel: {PolicyState: (Policy, prob)}
     # Policy-objekterne bærer depotværdierne for den givne tilstand.
@@ -622,8 +606,8 @@ def praemieflow_cashflow_funktion(praemieflow: PraemieFlow) -> CashflowFunktion:
         if policy.er_under_udbetaling or policy.tilstand != PolicyState.I_LIVE:
             return CashflowSats()
 
-        bruttoindbetalng_aar = policy.loen * policy.indbetalingsprocent
-        resultat = praemieflow.beregn(bruttoindbetalng_aar)
+        bruttoindbetaling_aar = policy.loen * policy.indbetalingsprocent
+        resultat = praemieflow.beregn(bruttoindbetaling_aar)
 
         return CashflowSats(
             b_aldersopsparing=-resultat.aldersopsparing_dkk,

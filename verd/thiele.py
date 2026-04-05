@@ -30,11 +30,15 @@ fremregningslaget (ikke her).
 ``thiele_step`` er et rent matematisk Euler-skridt — den kalder ingen
 modeller selv. Kaldende kode (``fremregn``) forudberegner µ_ij og R_ij_d
 og sender dem som en liste af ``(µ_ij, R_ij)``-par.
+
+``nul_risikosum`` er defineret her (frem for i ``fremregning``) for at undgå
+cirkulær import mellem ``overgang`` og ``fremregning``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from dataclasses import dataclass
 
 from verd.financial_market import FinancialMarket
@@ -79,6 +83,36 @@ class RisikoSummer:
 
 # Type-alias for risikosum-funktion — importeres af fremregning og overgang
 RisikosumFunktion = "Callable[[Policy, float], RisikoSummer]"
+
+
+def nul_risikosum(policy: Policy, t: float) -> RisikoSummer:
+    """
+    Standard risikosum-funktion for rent unit-link uden ekstra dødsbenefit.
+
+    Returnerer R_ij_d = 0 for alle depoter, svarende til at dødsbenefit =
+    depotværdi og DOED-reserven er nul:
+
+        R_ij_d = S_ij_d + V_j_d − V_i_d = V_i_d + 0 − V_i_d = 0
+
+    Det biometriske led −µ_ij·R_ij_d bidrager numerisk med nul, men er
+    strukturelt til stede i ligningerne (se ``thiele_step``).
+
+    Defineret i ``thiele`` (frem for ``fremregning``) for at undgå cirkulær
+    import — ``overgang`` kan importere herfra uden at skabe en cirkel.
+
+    Parameters
+    ----------
+    policy:
+        Ikke brugt — returnerer altid ``RisikoSummer()`` med nulværdier.
+    t:
+        Ikke brugt.
+
+    Returns
+    -------
+    RisikoSummer
+        Risikosum med alle depot-værdier = 0.
+    """
+    return RisikoSummer()
 
 
 @dataclass
@@ -155,11 +189,12 @@ def thiele_step(
 
         Δn_d = dt · [−b_d − c_d − Σ_j µ_ij·R_ij_d] / P(t)
 
-    Rækkefølge af operationer inden for tidssteget:
-        1. Betalinger (−b_d·dt) tilskrives som enheder ved P(t)
-        2. Finansielt afkast: implicit via P(t) → P(t+dt) = P(t)·exp(r·dt)
-        3. Biometriske kopplingsled (−Σ_j µ_ij·R_ij_d·dt) fratrækkes ved P(t)
-        4. Omkostninger (c_d·dt) fratrækkes ved P(t)
+    Simultane led i Euler-trinnet (alle evalueret ved P(t)):
+        - Betalingsled:    −b_d · dt / P(t)
+        - Biometrisk led:  −Σ_j µ_ij · R_ij_d · dt / P(t)
+        - Omkostningsled:  −c_d · dt / P(t)
+        Det finansielle led r·V_d·dt håndteres implicit via P(t) → P(t+dt).
+        Alle led kombineres i ét Euler-skridt — de er ikke sekventielle.
         (Tilstandssandsynligheder opdateres eksternt via Kolmogorov)
 
     Parameters
@@ -178,18 +213,21 @@ def thiele_step(
     overgangs_led:
         Liste af ``(µ_ij, R_ij)``-par, ét per udgående overgang fra
         ``policy.tilstand``. µ_ij er intensitetsværdien (float, år⁻¹)
-        forudberegnet af kaldende kode. Tom liste for absorberende tilstande.
+        forudberegnet af kaldende kode. Tom liste hvis ingen biometrisk risiko.
 
     Returns
     -------
     Policy
         Ny policy med opdaterede depotenheder (betinget på aktiv tilstand).
 
-    Raises
-    ------
-    ValueError
-        Hvis policyen er i en absorberende tilstand og ``overgangs_led``
-        er ikke-tom (inkonsistent input).
+    Notes
+    -----
+    Kaldende kode (``fremregn``) er ansvarlig for kun at kalde ``thiele_step``
+    for ikke-absorberende tilstande. Absorberende tilstande (f.eks. DOED) skal
+    filtreres fra inden kaldet — ``thiele_step`` foretager ikke dette tjek selv.
+
+    Hvis en beregnet depotværdi bliver negativ (f.eks. pga. høje omkostninger
+    eller numerisk fejl), afskæres den til 0 og en advarsel udstedes.
     """
     P_t = market.enhedspris(t)
 
@@ -236,7 +274,15 @@ def thiele_step(
         - sum_bio_liv
     ) / P_t
 
-    # Depoter kan ikke gå under nul (kortfristet numerisk fejl tillades ikke)
+    # Depoter kan ikke gå under nul. Afskær og udsted advarsel så kaldende
+    # kode kan detektere numerisk ustabilitet eller cashflow-fejl.
+    if ald_ny < 0.0 or rate_ny < 0.0 or liv_ny < 0.0:
+        warnings.warn(
+            f"thiele_step: negativ depotværdi afskåret til 0 ved t={t:.6f}. "
+            f"ald={ald_ny:.6f}, rate={rate_ny:.6f}, liv={liv_ny:.6f}. "
+            "Kontrollér cashflow-satser, omkostninger og dt.",
+            stacklevel=2,
+        )
     return dataclasses.replace(
         policy,
         aldersopsparing=max(0.0, ald_ny),

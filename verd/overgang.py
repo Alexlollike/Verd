@@ -24,10 +24,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from verd.thiele import RisikoSummer, nul_risikosum
+
 if TYPE_CHECKING:
     from verd.policy import Policy
     from verd.policy_state import PolicyState
-    from verd.thiele import RisikoSummer, RisikosumFunktion
+    from verd.thiele import RisikosumFunktion
 
 
 class OvergangsIntensitet(ABC):
@@ -124,13 +126,7 @@ class Overgang:
     fra: "PolicyState"
     til: "PolicyState"
     intensitet: OvergangsIntensitet
-    risikosum_func: "RisikosumFunktion" = field(default=None)
-
-    def __post_init__(self) -> None:
-        # Lazy default: importeres her for at undgå cirkulær import
-        if self.risikosum_func is None:
-            from verd.fremregning import nul_risikosum
-            object.__setattr__(self, "risikosum_func", nul_risikosum)
+    risikosum_func: "RisikosumFunktion" = field(default=nul_risikosum)
 
 
 @dataclass
@@ -194,3 +190,26 @@ class Tilstandsmodel:
             Tilstande der optræder som ``fra``-tilstand i mindst ét overgang.
         """
         return {o.fra for o in self.overgange}
+
+    def valider(self) -> None:
+        """
+        Validér at tilstandsmodellen er intern konsistent.
+
+        Kontrollerer at der ikke er selvkoblinger (µ_ii). Selvkoblinger
+        er matematisk meningsløse i en Markov-model: diagonalleddet i
+        intensitetsmatricen er implicit defineret som −Σ_{j≠i} µ_ij og
+        er ikke et selvstændigt overgang.
+
+        Raises
+        ------
+        ValueError
+            Hvis mindst ét overgang har identisk ``fra``- og ``til``-tilstand.
+        """
+        for o in self.overgange:
+            if o.fra == o.til:
+                raise ValueError(
+                    f"Selvkobling ikke tilladt i Tilstandsmodel: "
+                    f"{o.fra} → {o.til}. "
+                    "Diagonalleddet −Σ_j µ_ij håndteres implicit af "
+                    "Kolmogorov-fremadligningen."
+                )

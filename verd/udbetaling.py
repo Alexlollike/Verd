@@ -45,7 +45,11 @@ def livrente_annuitet(
     Beregn livrenteannuiteten ä_x = Σ_{k=0}^{K-1} dt · v^k · k_p_x.
 
     Summerer fremtidige diskonterede overlevelsessandsynligheder frem til max_alder.
-    Diskontfaktoren v^k = exp(-r·k·dt) beregnes ud fra markedets enhedspris.
+    Diskontfaktoren v^k beregnes generelt som:
+
+        v^k = P(t0) / P(t0 + k·dt)
+
+    Dette er korrekt for alle markedstyper inkl. tidsvarierende renter.
     k_p_x approximeres ved Euler-diskretisering:
 
         k_p_x ≈ exp(-Σ_{j=0}^{k-1} µ(alder+j·dt) · dt)
@@ -65,20 +69,29 @@ def livrente_annuitet(
     max_alder:
         Øvre aldersgrænse for summering. Standard: 120 år.
 
+        Begrundelse: Ved standard Gompertz-Makeham-parametre (alpha≈0.0005,
+        beta≈0.00004, sigma≈0.09) er µ(120) ≈ 2.0 år⁻¹, svarende til at
+        sandsynligheden for at overleve ét år fra alder 120 er under 14 %.
+        Hale-bidraget fra alder > 120 er under 0.01 DKK pr. 100.000 DKK
+        depot ved r ≥ 0.01. For meget lave mortalitetsintensiteter eller
+        renter bør max_alder øges manuelt.
+
     Returns
     -------
     float
         Livrenteannuiteten ä_x i år.
     """
     K = max(1, round((max_alder - alder) / dt))
-    r_dt = math.log(market.enhedspris(t0 + dt) / market.enhedspris(t0))  # = r·dt
+    P_t0 = market.enhedspris(t0)
 
     annuitet = 0.0
     log_kpx = 0.0  # log(k_p_x); starter ved 0 (0_p_x = 1)
 
     for k in range(K):
         kpx = math.exp(log_kpx)
-        discount = math.exp(-r_dt * k)
+        # Generel diskontfaktor: v^k = P(t0) / P(t0 + k·dt)
+        # Korrekt for alle markedstyper inkl. tidsvarierende renter.
+        discount = P_t0 / market.enhedspris(t0 + k * dt)
         annuitet += dt * discount * kpx
 
         mu = biometric.mortality_intensity(alder + k * dt)
@@ -97,6 +110,8 @@ def sikker_annuitet(
     Beregn sikker annuitet (certain annuity) ä_n = Σ_{k=0}^{N-1} dt · v^k.
 
     Bruges til ratepension, der udbetales uanset biometri over en fast periode.
+    Diskontfaktoren v^k beregnes generelt som P(t0) / P(t0 + k·dt), korrekt
+    for alle markedstyper inkl. tidsvarierende renter.
 
     Parameters
     ----------
@@ -115,8 +130,8 @@ def sikker_annuitet(
         Sikker annuitet ä_n i år.
     """
     N = max(1, round(remaining_years / dt))
-    r_dt = math.log(market.enhedspris(t0 + dt) / market.enhedspris(t0))  # = r·dt
-    return sum(dt * math.exp(-r_dt * k) for k in range(N))
+    P_t0 = market.enhedspris(t0)
+    return sum(dt * P_t0 / market.enhedspris(t0 + k * dt) for k in range(N))
 
 
 def udbetaling_cashflow_funktion(
@@ -169,12 +184,19 @@ def udbetaling_cashflow_funktion(
         # Aldersopsparing: engangsudbetaling — tøm depotet i ét skridt
         b_ald = policy.aldersopsparing * P_t / dt if policy.aldersopsparing > 0.0 else 0.0
 
-        # Ratepension: niveau-udbetaling over resterende ratepensionsperiode
+        # Ratepension: niveau-udbetaling over resterende ratepensionsperiode.
+        # Ved periodens afslutning (remaining_rate_years ≤ dt) udbetales
+        # restdepot som engangsudbetaling — analogt med aldersopsparing.
+        # Dette sikrer at depotet udtømmes fuldt ud og ikke efterlades som
+        # en restbeholdning der kun nedbringes via omkostninger.
         remaining_rate_years = policy.ratepensionsvarighed - (t - t_pension)
         if remaining_rate_years > dt and policy.ratepensionsopsparing > 0.0:
             V_rate = policy.ratepensionsopsparing * P_t
             ann_rate = sikker_annuitet(remaining_rate_years, market, t, dt)
             b_rate = V_rate / ann_rate if ann_rate > 0.0 else 0.0
+        elif 0.0 < remaining_rate_years <= dt and policy.ratepensionsopsparing > 0.0:
+            # Sidste skridt: engangsudbetaling af restdepot
+            b_rate = policy.ratepensionsopsparing * P_t / dt
         else:
             b_rate = 0.0
 
